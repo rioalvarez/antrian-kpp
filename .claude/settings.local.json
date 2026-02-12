@@ -22,7 +22,8 @@
       "WebFetch(domain:v2.tauri.app)",
       "WebFetch(domain:github.com)",
       "Bash(git rm:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(git remote add:*)"
     ]
   }
 }

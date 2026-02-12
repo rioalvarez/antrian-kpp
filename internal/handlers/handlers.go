@@ -101,6 +101,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/printer/test", h.handlePrinterTest)
 	mux.HandleFunc("/api/printer/status", h.handlePrinterStatus)
 
+	// API - Print Agent (remote printing)
+	mux.HandleFunc("/api/print-agent/sse", h.handlePrintAgentSSE)
+	mux.HandleFunc("/api/print-agent/jobs/pending", h.handlePendingPrintJobs)
+	mux.HandleFunc("/api/print-agent/job/", h.handlePrintJobAPI)
+
 	// SSE
 	mux.HandleFunc("/api/sse/display", h.handleDisplaySSE)
 	mux.HandleFunc("/api/sse/counter/", h.handleCounterSSE)
@@ -833,25 +838,56 @@ func (h *Handler) handlePrintTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load ticket template from settings
-	template := h.loadTicketTemplate()
+	tmpl := h.loadTicketTemplate()
 
-	// Print ticket
-	err := h.printer.PrintTicket(printer.TicketData{
-		QueueNumber: req.QueueNumber,
-		TypeName:    req.TypeName,
-		DateTime:    req.DateTime,
-	}, template)
+	localPrinted := false
+	remoteSent := false
 
-	if err != nil {
-		log.Printf("Print error: %v", err)
-		h.jsonError(w, "Failed to print ticket: "+err.Error(), http.StatusInternalServerError)
+	// Local printing (existing behavior)
+	if h.config.Printer.Enabled {
+		err := h.printer.PrintTicket(printer.TicketData{
+			QueueNumber: req.QueueNumber,
+			TypeName:    req.TypeName,
+			DateTime:    req.DateTime,
+		}, tmpl)
+		if err != nil {
+			log.Printf("Local print error: %v", err)
+		} else {
+			localPrinted = true
+		}
+	}
+
+	// Remote printing — create job and broadcast to print agents
+	if h.config.Printer.RemoteEnabled {
+		templateJSON, err := json.Marshal(tmpl)
+		if err != nil {
+			log.Printf("Failed to marshal template: %v", err)
+		} else {
+			job, err := h.db.CreatePrintJob(req.QueueNumber, req.TypeName, req.DateTime, string(templateJSON))
+			if err != nil {
+				log.Printf("Failed to create print job: %v", err)
+			} else {
+				h.hub.BroadcastPrinters("print_job", map[string]interface{}{
+					"job_id":       job.ID,
+					"queue_number": job.QueueNumber,
+				})
+				remoteSent = true
+				log.Printf("Print job #%d created for remote agents: %s", job.ID, req.QueueNumber)
+			}
+		}
+	}
+
+	if !localPrinted && !remoteSent {
+		h.jsonError(w, "No printer available (local disabled, remote disabled or failed)", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Printed ticket: %s (%s)", req.QueueNumber, req.TypeName)
-	h.jsonResponse(w, map[string]string{
-		"status":  "printed",
-		"message": "Ticket printed successfully",
+	log.Printf("Printed ticket: %s (%s) [local=%v, remote=%v]", req.QueueNumber, req.TypeName, localPrinted, remoteSent)
+	h.jsonResponse(w, map[string]interface{}{
+		"status":        "printed",
+		"message":       "Ticket printed successfully",
+		"local_printed": localPrinted,
+		"remote_sent":   remoteSent,
 	})
 }
 
@@ -920,9 +956,125 @@ func (h *Handler) handlePrinterTest(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handlePrinterStatus(w http.ResponseWriter, r *http.Request) {
 	h.jsonResponse(w, map[string]interface{}{
-		"enabled":      h.printer.IsEnabled(),
-		"printer_name": h.printer.GetPrinterName(),
+		"enabled":        h.printer.IsEnabled(),
+		"printer_name":   h.printer.GetPrinterName(),
+		"remote_enabled": h.config.Printer.RemoteEnabled,
+		"agents_online":  h.hub.GetPrinterClientCount(),
 	})
+}
+
+// Print Agent handlers (remote printing)
+
+func (h *Handler) handlePrintAgentSSE(w http.ResponseWriter, r *http.Request) {
+	agentID := r.URL.Query().Get("agent_id")
+	if agentID == "" {
+		http.Error(w, "agent_id is required", http.StatusBadRequest)
+		return
+	}
+	h.hub.ServePrinterSSE(w, r, agentID)
+}
+
+func (h *Handler) handlePendingPrintJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	jobs, err := h.db.ListPendingPrintJobs()
+	if err != nil {
+		h.jsonError(w, "Failed to list pending jobs", http.StatusInternalServerError)
+		return
+	}
+	if jobs == nil {
+		jobs = []*models.PrintJob{}
+	}
+	h.jsonResponse(w, jobs)
+}
+
+func (h *Handler) handlePrintJobAPI(w http.ResponseWriter, r *http.Request) {
+	// Parse: /api/print-agent/job/{id} or /api/print-agent/job/{id}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/api/print-agent/job/")
+	parts := strings.Split(path, "/")
+
+	if len(parts) < 1 || parts[0] == "" {
+		h.jsonError(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	jobID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		h.jsonError(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
+	switch action {
+	case "claim":
+		if r.Method != http.MethodPost {
+			h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			AgentID string `json:"agent_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AgentID == "" {
+			h.jsonError(w, "agent_id is required", http.StatusBadRequest)
+			return
+		}
+
+		job, err := h.db.ClaimPrintJob(jobID, req.AgentID)
+		if err != nil {
+			h.jsonError(w, "Failed to claim job (already claimed or not found)", http.StatusConflict)
+			return
+		}
+		log.Printf("Print job #%d claimed by agent %s", jobID, req.AgentID)
+		h.jsonResponse(w, job)
+
+	case "complete":
+		if r.Method != http.MethodPost {
+			h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := h.db.CompletePrintJob(jobID); err != nil {
+			h.jsonError(w, "Failed to complete job", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Print job #%d completed", jobID)
+		h.jsonResponse(w, map[string]string{"status": "completed"})
+
+	case "fail":
+		if r.Method != http.MethodPost {
+			h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if err := h.db.FailPrintJob(jobID, req.Error); err != nil {
+			h.jsonError(w, "Failed to update job", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Print job #%d failed: %s", jobID, req.Error)
+		h.jsonResponse(w, map[string]string{"status": "failed"})
+
+	default:
+		// GET /api/print-agent/job/{id} — return job details
+		if r.Method != http.MethodGet {
+			h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		job, err := h.db.GetPrintJob(jobID)
+		if err != nil {
+			h.jsonError(w, "Job not found", http.StatusNotFound)
+			return
+		}
+		h.jsonResponse(w, job)
+	}
 }
 
 // Report handlers

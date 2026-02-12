@@ -18,8 +18,9 @@ type Config struct {
 }
 
 type PrinterConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	PrinterName string `yaml:"printer_name"`
+	Enabled       bool   `yaml:"enabled"`
+	PrinterName   string `yaml:"printer_name"`
+	RemoteEnabled bool   `yaml:"remote_enabled"`
 }
 
 type ServerConfig struct {

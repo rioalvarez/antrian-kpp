@@ -9,15 +9,26 @@ import (
 	"time"
 )
 
+type ClientType int
+
+const (
+	ClientTypeDisplay ClientType = iota
+	ClientTypeCounter
+	ClientTypePrinter
+)
+
 type Client struct {
-	ID        string
-	Channel   chan []byte
-	CounterID int64
+	ID         string
+	Channel    chan []byte
+	CounterID  int64
+	ClientType ClientType
+	AgentID    string
 }
 
 type Hub struct {
 	displayClients  map[string]*Client
 	counterClients  map[int64]map[string]*Client
+	printerClients  map[string]*Client
 	mu              sync.RWMutex
 	register        chan *Client
 	unregister      chan *Client
@@ -27,6 +38,7 @@ func NewHub() *Hub {
 	h := &Hub{
 		displayClients: make(map[string]*Client),
 		counterClients: make(map[int64]map[string]*Client),
+		printerClients: make(map[string]*Client),
 		register:       make(chan *Client),
 		unregister:     make(chan *Client),
 	}
@@ -39,30 +51,39 @@ func (h *Hub) run() {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
-			if client.CounterID == 0 {
-				h.displayClients[client.ID] = client
-			} else {
+			switch client.ClientType {
+			case ClientTypePrinter:
+				h.printerClients[client.ID] = client
+			case ClientTypeCounter:
 				if h.counterClients[client.CounterID] == nil {
 					h.counterClients[client.CounterID] = make(map[string]*Client)
 				}
 				h.counterClients[client.CounterID][client.ID] = client
+			default:
+				h.displayClients[client.ID] = client
 			}
 			h.mu.Unlock()
-			log.Printf("SSE client connected: %s (counter: %d)", client.ID, client.CounterID)
+			log.Printf("SSE client connected: %s (type: %d, agent: %s)", client.ID, client.ClientType, client.AgentID)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if client.CounterID == 0 {
-				if _, ok := h.displayClients[client.ID]; ok {
-					delete(h.displayClients, client.ID)
+			switch client.ClientType {
+			case ClientTypePrinter:
+				if _, ok := h.printerClients[client.ID]; ok {
+					delete(h.printerClients, client.ID)
 					close(client.Channel)
 				}
-			} else {
+			case ClientTypeCounter:
 				if clients, ok := h.counterClients[client.CounterID]; ok {
 					if _, ok := clients[client.ID]; ok {
 						delete(clients, client.ID)
 						close(client.Channel)
 					}
+				}
+			default:
+				if _, ok := h.displayClients[client.ID]; ok {
+					delete(h.displayClients, client.ID)
+					close(client.Channel)
 				}
 			}
 			h.mu.Unlock()
@@ -215,4 +236,82 @@ func (h *Hub) GetCounterClientCount(counterID int64) int {
 		return len(clients)
 	}
 	return 0
+}
+
+// BroadcastPrinters sends an event to all connected printer agents
+func (h *Hub) BroadcastPrinters(eventType string, data interface{}) {
+	event := map[string]interface{}{
+		"type": eventType,
+		"data": data,
+	}
+
+	jsonData, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("Error marshaling SSE printer data: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, client := range h.printerClients {
+		select {
+		case client.Channel <- jsonData:
+		default:
+			log.Printf("SSE printer client buffer full: %s", client.ID)
+		}
+	}
+}
+
+// ServePrinterSSE serves SSE connection for print agent clients
+func (h *Hub) ServePrinterSSE(w http.ResponseWriter, r *http.Request, agentID string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	clientID := fmt.Sprintf("printer-%s-%d", agentID, time.Now().UnixNano())
+	client := &Client{
+		ID:         clientID,
+		Channel:    make(chan []byte, 100),
+		ClientType: ClientTypePrinter,
+		AgentID:    agentID,
+	}
+
+	h.register <- client
+
+	defer func() {
+		h.unregister <- client
+	}()
+
+	fmt.Fprintf(w, "event: connected\ndata: {\"client_id\":\"%s\",\"agent_id\":\"%s\"}\n\n", clientID, agentID)
+	flusher.Flush()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
+		case data := <-client.Channel:
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+			flusher.Flush()
+		}
+	}
+}
+
+func (h *Hub) GetPrinterClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.printerClients)
 }

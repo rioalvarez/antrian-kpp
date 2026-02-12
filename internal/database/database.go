@@ -94,6 +94,22 @@ func (d *DB) migrate() error {
 		sort_order INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS print_jobs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		queue_number TEXT NOT NULL,
+		type_name TEXT NOT NULL,
+		date_time TEXT NOT NULL,
+		template_json TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		agent_id TEXT,
+		created_at DATETIME DEFAULT (datetime('now','localtime')),
+		claimed_at DATETIME,
+		completed_at DATETIME,
+		error_message TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status);
 	`
 
 	_, err := d.Exec(schema)
@@ -1033,6 +1049,130 @@ func (d *DB) ResetQueuesToday(queueType string) (int64, error) {
 	}
 
 	return affected, nil
+}
+
+// Print Job operations
+
+func (d *DB) CreatePrintJob(queueNumber, typeName, dateTime, templateJSON string) (*models.PrintJob, error) {
+	result, err := d.Exec(`
+		INSERT INTO print_jobs (queue_number, type_name, date_time, template_json, status)
+		VALUES (?, ?, ?, ?, 'pending')
+	`, queueNumber, typeName, dateTime, templateJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	id, _ := result.LastInsertId()
+	return d.GetPrintJob(id)
+}
+
+func (d *DB) GetPrintJob(id int64) (*models.PrintJob, error) {
+	pj := &models.PrintJob{}
+	var agentID sql.NullString
+	var errorMsg sql.NullString
+	err := d.QueryRow(`
+		SELECT id, queue_number, type_name, date_time, template_json, status,
+			agent_id, created_at, claimed_at, completed_at, error_message
+		FROM print_jobs WHERE id = ?
+	`, id).Scan(&pj.ID, &pj.QueueNumber, &pj.TypeName, &pj.DateTime,
+		&pj.TemplateJSON, &pj.Status, &agentID, &pj.CreatedAt,
+		&pj.ClaimedAt, &pj.CompletedAt, &errorMsg)
+	if err != nil {
+		return nil, err
+	}
+	if agentID.Valid {
+		pj.AgentID = agentID.String
+	}
+	if errorMsg.Valid {
+		pj.ErrorMessage = errorMsg.String
+	}
+	pj.PrepareJSON()
+	return pj, nil
+}
+
+// ClaimPrintJob atomically claims a pending job for the given agent.
+// Returns the job if successfully claimed, or sql.ErrNoRows if already claimed.
+func (d *DB) ClaimPrintJob(id int64, agentID string) (*models.PrintJob, error) {
+	result, err := d.Exec(`
+		UPDATE print_jobs
+		SET status = 'printing', agent_id = ?, claimed_at = datetime('now','localtime')
+		WHERE id = ? AND status = 'pending'
+	`, agentID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	return d.GetPrintJob(id)
+}
+
+func (d *DB) CompletePrintJob(id int64) error {
+	_, err := d.Exec(`
+		UPDATE print_jobs
+		SET status = 'completed', completed_at = datetime('now','localtime')
+		WHERE id = ?
+	`, id)
+	return err
+}
+
+func (d *DB) FailPrintJob(id int64, errorMessage string) error {
+	_, err := d.Exec(`
+		UPDATE print_jobs
+		SET status = 'failed', completed_at = datetime('now','localtime'), error_message = ?
+		WHERE id = ?
+	`, errorMessage, id)
+	return err
+}
+
+func (d *DB) ListPendingPrintJobs() ([]*models.PrintJob, error) {
+	rows, err := d.Query(`
+		SELECT id, queue_number, type_name, date_time, template_json, status,
+			agent_id, created_at, claimed_at, completed_at, error_message
+		FROM print_jobs
+		WHERE status = 'pending'
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []*models.PrintJob
+	for rows.Next() {
+		pj := &models.PrintJob{}
+		var agentID, errorMsg sql.NullString
+		if err := rows.Scan(&pj.ID, &pj.QueueNumber, &pj.TypeName, &pj.DateTime,
+			&pj.TemplateJSON, &pj.Status, &agentID, &pj.CreatedAt,
+			&pj.ClaimedAt, &pj.CompletedAt, &errorMsg); err != nil {
+			return nil, err
+		}
+		if agentID.Valid {
+			pj.AgentID = agentID.String
+		}
+		if errorMsg.Valid {
+			pj.ErrorMessage = errorMsg.String
+		}
+		pj.PrepareJSON()
+		jobs = append(jobs, pj)
+	}
+	return jobs, nil
+}
+
+// CleanupOldPrintJobs removes completed/failed print jobs older than the given hours.
+func (d *DB) CleanupOldPrintJobs(hours int) (int64, error) {
+	result, err := d.Exec(`
+		DELETE FROM print_jobs
+		WHERE status IN ('completed', 'failed')
+		AND created_at < datetime('now', 'localtime', ? || ' hours')
+	`, fmt.Sprintf("-%d", hours))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (d *DB) Close() error {

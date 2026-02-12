@@ -1,0 +1,14 @@
+# Print Agent Configuration
+# Copy this file to the same directory as print-agent.exe and edit as needed.
+
+# Unique ID for this agent (used for job claiming)
+agent_id: "printer-lobi"
+
+# URL of the queue server
+server_url: "http://192.168.1.100:8080"
+
+# Windows printer name (must match exactly as shown in Devices and Printers)
+printer_name: "ECO80"
+
+# Seconds to wait before reconnecting after SSE disconnection
+retry_delay: 5

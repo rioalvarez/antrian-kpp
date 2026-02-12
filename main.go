@@ -135,6 +135,14 @@ func main() {
 					log.Printf("Auto-cancelled %d old queues", affected)
 				}
 			}
+
+			// Cleanup old print jobs (completed/failed older than 24 hours)
+			affected, err := db.CleanupOldPrintJobs(24)
+			if err != nil {
+				log.Printf("Failed to cleanup old print jobs: %v", err)
+			} else if affected > 0 {
+				log.Printf("Cleaned up %d old print jobs", affected)
+			}
 		}
 	}()
 

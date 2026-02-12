@@ -128,3 +128,39 @@ type PaginatedQueues struct {
 	PerPage    int      `json:"per_page"`
 	TotalPages int      `json:"total_pages"`
 }
+
+// Print Job types for remote printing
+
+type PrintJobStatus string
+
+const (
+	PrintJobPending   PrintJobStatus = "pending"
+	PrintJobPrinting  PrintJobStatus = "printing"
+	PrintJobCompleted PrintJobStatus = "completed"
+	PrintJobFailed    PrintJobStatus = "failed"
+)
+
+type PrintJob struct {
+	ID           int64          `json:"id"`
+	QueueNumber  string         `json:"queue_number"`
+	TypeName     string         `json:"type_name"`
+	DateTime     string         `json:"date_time"`
+	TemplateJSON string         `json:"template_json"`
+	Status       PrintJobStatus `json:"status"`
+	AgentID      string         `json:"agent_id,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	ClaimedAt    sql.NullTime   `json:"-"`
+	ClaimedAtPtr *time.Time     `json:"claimed_at,omitempty"`
+	CompletedAt  sql.NullTime   `json:"-"`
+	CompletedAtPtr *time.Time   `json:"completed_at,omitempty"`
+	ErrorMessage string         `json:"error_message,omitempty"`
+}
+
+func (pj *PrintJob) PrepareJSON() {
+	if pj.ClaimedAt.Valid {
+		pj.ClaimedAtPtr = &pj.ClaimedAt.Time
+	}
+	if pj.CompletedAt.Valid {
+		pj.CompletedAtPtr = &pj.CompletedAt.Time
+	}
+}
