@@ -63,6 +63,11 @@ func main() {
 		cfg = config.DefaultConfig()
 	}
 
+	// Hash admin password if still plaintext in config
+	if err := cfg.HashPasswordIfPlain(*configPath); err != nil {
+		log.Printf("Warning: Failed to hash admin password: %v", err)
+	}
+
 	// Setup logging
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Printf("Starting Queue System...")

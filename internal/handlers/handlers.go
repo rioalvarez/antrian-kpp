@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"queue-system/internal/config"
@@ -21,12 +24,14 @@ import (
 )
 
 type Handler struct {
-	db       *database.DB
-	hub      *sse.Hub
-	config   *config.Config
-	tmpl     *template.Template
-	staticFS fs.FS
-	printer  *printer.Printer
+	db         *database.DB
+	hub        *sse.Hub
+	config     *config.Config
+	tmpl       *template.Template
+	staticFS   fs.FS
+	printer    *printer.Printer
+	sessions   map[string]time.Time
+	sessionsMu sync.RWMutex
 }
 
 func New(db *database.DB, hub *sse.Hub, cfg *config.Config, webFS embed.FS) (*Handler, error) {
@@ -53,7 +58,81 @@ func New(db *database.DB, hub *sse.Hub, cfg *config.Config, webFS embed.FS) (*Ha
 		tmpl:     tmpl,
 		staticFS: staticFS,
 		printer:  printerInstance,
+		sessions: make(map[string]time.Time),
 	}, nil
+}
+
+// --- Session helpers ---
+
+func (h *Handler) generateToken() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func (h *Handler) isAuthenticated(r *http.Request) bool {
+	cookie, err := r.Cookie("admin_session")
+	if err != nil {
+		return false
+	}
+	h.sessionsMu.RLock()
+	expiry, ok := h.sessions[cookie.Value]
+	h.sessionsMu.RUnlock()
+	if !ok {
+		return false
+	}
+	if time.Now().After(expiry) {
+		h.sessionsMu.Lock()
+		delete(h.sessions, cookie.Value)
+		h.sessionsMu.Unlock()
+		return false
+	}
+	return true
+}
+
+func (h *Handler) setAdminSession(w http.ResponseWriter) {
+	token := h.generateToken()
+	timeout := time.Duration(h.config.Security.SessionTimeout) * time.Second
+	if timeout <= 0 {
+		timeout = 3600 * time.Second
+	}
+	h.sessionsMu.Lock()
+	h.sessions[token] = time.Now().Add(timeout)
+	h.sessionsMu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "admin_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(timeout.Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+func (h *Handler) clearAdminSession(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("admin_session"); err == nil {
+		h.sessionsMu.Lock()
+		delete(h.sessions, cookie.Value)
+		h.sessionsMu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "admin_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+}
+
+// adminAPIAuth wraps an API handler requiring session authentication.
+func (h *Handler) adminAPIAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !h.isAuthenticated(r) {
+			h.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -64,6 +143,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Pages
 	mux.HandleFunc("/", h.handleIndex)
 	mux.HandleFunc("/admin", h.handleAdmin)
+	mux.HandleFunc("/admin/login", h.handleAdminLogin)
+	mux.HandleFunc("/admin/logout", h.handleAdminLogout)
 	mux.HandleFunc("/display", h.handleDisplay)
 	mux.HandleFunc("/ticket", h.handleTicket)
 	mux.HandleFunc("/counters", h.handleCountersPage)
@@ -89,8 +170,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// API - Settings
 	mux.HandleFunc("/api/settings", h.handleSettings)
 
-	// API - Admin
-	mux.HandleFunc("/api/admin/reset-queues", h.handleResetQueues)
+	// API - Admin (requires authentication)
+	mux.HandleFunc("/api/admin/reset-queues", h.adminAPIAuth(h.handleResetQueues))
 
 	// API - Reports
 	mux.HandleFunc("/api/report", h.handleReport)
@@ -143,7 +224,44 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
+	if !h.isAuthenticated(r) {
+		http.Redirect(w, r, "/admin/login", http.StatusFound)
+		return
+	}
 	h.tmpl.ExecuteTemplate(w, "admin.html", nil)
+}
+
+func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if h.isAuthenticated(r) {
+			http.Redirect(w, r, "/admin", http.StatusFound)
+			return
+		}
+		h.tmpl.ExecuteTemplate(w, "admin_login.html", nil)
+
+	case http.MethodPost:
+		if err := r.ParseForm(); err != nil {
+			h.tmpl.ExecuteTemplate(w, "admin_login.html", map[string]string{"Error": "Request tidak valid"})
+			return
+		}
+		password := r.FormValue("password")
+		if h.config.VerifyAdminPassword(password) {
+			h.setAdminSession(w)
+			http.Redirect(w, r, "/admin", http.StatusFound)
+			return
+		}
+		log.Printf("Admin login failed: wrong password from %s", r.RemoteAddr)
+		h.tmpl.ExecuteTemplate(w, "admin_login.html", map[string]string{"Error": "Password salah. Silakan coba lagi."})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h *Handler) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	h.clearAdminSession(w, r)
+	http.Redirect(w, r, "/admin/login", http.StatusFound)
 }
 
 func (h *Handler) handleDisplay(w http.ResponseWriter, r *http.Request) {

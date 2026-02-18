@@ -2,8 +2,10 @@ package config
 
 import (
 	"os"
+	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -122,4 +124,32 @@ func (c *Config) Save(path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// isBcryptHash returns true if the string looks like a bcrypt hash.
+func isBcryptHash(s string) bool {
+	return strings.HasPrefix(s, "$2a$") ||
+		strings.HasPrefix(s, "$2b$") ||
+		strings.HasPrefix(s, "$2y$")
+}
+
+// HashPasswordIfPlain checks if admin_password is plaintext.
+// If so, it hashes it with bcrypt, updates the config, and saves the file.
+// Call this once after loading config.
+func (c *Config) HashPasswordIfPlain(configPath string) error {
+	if isBcryptHash(c.Security.AdminPassword) {
+		return nil // already hashed, nothing to do
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(c.Security.AdminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	c.Security.AdminPassword = string(hash)
+	return c.Save(configPath)
+}
+
+// VerifyAdminPassword checks a plaintext password against the stored bcrypt hash.
+func (c *Config) VerifyAdminPassword(password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(c.Security.AdminPassword), []byte(password))
+	return err == nil
 }

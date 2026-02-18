@@ -20,7 +20,7 @@ audio:
     enabled: true
     bell_file: /static/audio/bell.mp3
 security:
-    admin_password: admin123
+    admin_password: $2a$10$JnckmE5a6LsBh1Styr5YNOx5ZQ8YDBLZkzsRMOijLpRs18laB2Dra
     session_timeout: 3600
 printer:
     enabled: false
