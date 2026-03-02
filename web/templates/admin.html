@@ -45,6 +45,15 @@
                         </svg>
                         <span>Kelola Antrian</span>
                     </a>
+                    <a href="/admin/super-counter" class="nav-item" data-tooltip="Super Counter">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="7" width="20" height="14" rx="2"></rect>
+                            <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"></path>
+                            <line x1="12" y1="12" x2="12" y2="16"></line>
+                            <line x1="10" y1="14" x2="14" y2="14"></line>
+                        </svg>
+                        <span>Super Counter</span>
+                    </a>
                 </div>
 
                 <div class="nav-section">
@@ -104,6 +113,14 @@
                             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
                             <line x1="8" y1="21" x2="16" y2="21"></line>
                             <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    </a>
+                    <a href="/admin/super-counter" class="quick-link" title="Super Counter">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="7" width="20" height="14" rx="2"></rect>
+                            <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"></path>
+                            <line x1="12" y1="12" x2="12" y2="16"></line>
+                            <line x1="10" y1="14" x2="14" y2="14"></line>
                         </svg>
                     </a>
                     <a href="/counters" target="_blank" class="quick-link" title="Pilih Loket">
@@ -456,6 +473,43 @@
                                         <span class="toggle-desc">Bunyi bell saat memanggil antrian</span>
                                     </span>
                                 </label>
+                                <div class="form-group">
+                                    <label for="display-tts-mode">Mode Suara Pemanggilan</label>
+                                    <select id="display-tts-mode" class="form-control" onchange="onTtsModeChange()">
+                                        <option value="local_tts">Audio Lokal Tauri (MP3 bawaan)</option>
+                                        <option value="server_audio">Audio Server — seragam di semua browser</option>
+                                        <option value="web_speech">TTS Browser (dengan template kustom)</option>
+                                    </select>
+                                    <small style="color: var(--text-muted); margin-top: 4px; display: block;">
+                                        <strong>Audio Lokal Tauri</strong>: hanya efektif di aplikasi Tauri.<br>
+                                        <strong>Audio Server</strong>: semua browser memutar file MP3 yang sama dari server → suara seragam.<br>
+                                        <strong>TTS Browser</strong>: menggunakan suara bawaan browser, gunakan template di bawah.
+                                    </small>
+                                </div>
+                                <div class="form-group" id="voice-selector-group">
+                                    <label for="display-audio-voice">
+                                        Pilih Suara
+                                        <span class="label-hint">Hanya untuk mode Audio Server</span>
+                                    </label>
+                                    <select id="display-audio-voice" class="form-control">
+                                        <option value="perempuan">Perempuan (default)</option>
+                                    </select>
+                                    <small style="color: var(--text-muted); margin-top: 4px; display: block;">
+                                        Tambah suara baru: buat folder di <code>web/static/audio/{nama}/</code> dan isi dengan file MP3 yang sama.
+                                    </small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="display-tts-template">
+                                        Template Teks Panggilan
+                                        <span class="label-hint">Hanya untuk mode TTS Browser</span>
+                                    </label>
+                                    <input type="text" id="display-tts-template" class="form-control"
+                                        placeholder="Nomor antrian {nomor}, silakan menuju {loket}"
+                                        maxlength="150">
+                                    <small style="color: var(--text-muted); margin-top: 4px; display: block;">
+                                        Gunakan <code>{nomor}</code> untuk nomor antrian dan <code>{loket}</code> untuk nama loket.
+                                    </small>
+                                </div>
                                 <div class="form-group">
                                     <label for="display-tts-rate">
                                         Kecepatan Suara TTS

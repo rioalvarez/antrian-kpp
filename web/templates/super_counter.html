@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Counter – Panel Admin</title>
+    <link rel="stylesheet" href="/static/css/super-counter.css">
+</head>
+<body>
+
+<header class="sc-header">
+    <div class="sc-header-left">
+        <a href="/admin" class="sc-back">&#8592; Admin</a>
+        <h1 class="sc-title">Super Counter</h1>
+        <span class="sc-badge">Admin Only</span>
+    </div>
+    <span class="sc-conn" id="conn-status">—</span>
+</header>
+
+<div class="sc-layout">
+
+    <!-- ── KIRI: Daftar Jenis Antrian ── -->
+    <aside class="sc-sidebar">
+        <div class="sc-sidebar-label">Jenis Antrian</div>
+        <div class="sc-type-list" id="type-list">
+            {{range .QueueTypes}}
+            <button class="sc-type-card" id="type-card-{{.Code}}"
+                    data-code="{{.Code}}"
+                    onclick="selectQueueType('{{.Code}}', '{{.Name}}', '{{.Prefix}}')">
+                <div class="sc-tc-prefix">{{.Prefix}}</div>
+                <div class="sc-tc-info">
+                    <div class="sc-tc-name">{{.Name}}</div>
+                    <div class="sc-tc-code">Kode: {{.Code}}</div>
+                </div>
+                <div class="sc-tc-badge" id="badge-{{.Code}}">0</div>
+            </button>
+            {{else}}
+            <p class="sc-empty">Tidak ada jenis antrian aktif.</p>
+            {{end}}
+        </div>
+    </aside>
+
+    <!-- ── KANAN: Panel Bertahap ── -->
+    <main class="sc-panel">
+
+        <!-- State 1: Belum pilih jenis -->
+        <div class="sc-state sc-state-placeholder" id="state-1">
+            <div class="sc-ph-icon">&#9783;</div>
+            <div class="sc-ph-title">Pilih Jenis Antrian</div>
+            <div class="sc-ph-hint">Klik salah satu jenis antrian di sebelah kiri untuk melanjutkan</div>
+        </div>
+
+        <!-- State 2: Sudah pilih jenis, pilih loket -->
+        <div class="sc-state" id="state-2" style="display:none">
+            <div class="sc-state-header">
+                <div class="sc-state-info">
+                    <div class="sc-state-label">Jenis Antrian Dipilih</div>
+                    <div class="sc-state-value">
+                        <span class="sc-state-prefix" id="s2-prefix"></span>
+                        <span id="s2-type-name"></span>
+                    </div>
+                </div>
+                <div class="sc-state-meta">
+                    <span class="sc-waiting-pill" id="s2-waiting">0 menunggu</span>
+                    <button class="sc-link-btn" onclick="goToState1()">&#8592; Ganti Jenis</button>
+                </div>
+            </div>
+
+            <div class="sc-step-label">Pilih Loket yang Akan Memanggil</div>
+
+            <div class="sc-counter-grid" id="counter-grid">
+                {{range .Counters}}
+                <button class="sc-loket-card" id="loket-card-{{.ID}}"
+                        data-id="{{.ID}}"
+                        onclick="selectCounter({{.ID}}, '{{.CounterName}}', '{{.CounterNumber}}')">
+                    <div class="sc-lc-top">
+                        <div class="sc-lc-number">Loket {{.CounterNumber}}</div>
+                        <div class="sc-lc-dot" id="loket-dot-{{.ID}}"></div>
+                    </div>
+                    <div class="sc-lc-name">{{.CounterName}}</div>
+                    <div class="sc-lc-queue" id="loket-q-{{.ID}}">---</div>
+                </button>
+                {{else}}
+                <p class="sc-empty">Belum ada loket. Buat loket di panel admin terlebih dahulu.</p>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- State 3: Jenis + Loket dipilih, panel aksi -->
+        <div class="sc-state" id="state-3" style="display:none">
+            <div class="sc-state-header">
+                <div class="sc-state-info">
+                    <div class="sc-state-label">Mengoperasikan</div>
+                    <div class="sc-state-value">
+                        <span class="sc-state-prefix" id="s3-prefix"></span>
+                        <span id="s3-type-name"></span>
+                        <span class="sc-state-sep">·</span>
+                        <span id="s3-counter-name"></span>
+                    </div>
+                </div>
+                <div class="sc-state-meta">
+                    <button class="sc-link-btn" onclick="goToState2()">&#8592; Ganti Loket</button>
+                    <button class="sc-link-btn" onclick="goToState1()">Ganti Jenis</button>
+                </div>
+            </div>
+
+            <!-- Nomor antrian saat ini -->
+            <div class="sc-current-card">
+                <div class="sc-current-label">Antrian Saat Ini di Loket Ini</div>
+                <div class="sc-current-num" id="current-queue">---</div>
+                <div class="sc-current-status" id="queue-status">Tidak Ada Antrian</div>
+            </div>
+
+            <!-- Info antrian menunggu untuk jenis ini -->
+            <div class="sc-queue-info">
+                <div class="sc-qi-item">
+                    <span class="sc-qi-label">Menunggu jenis</span>
+                    <span class="sc-qi-prefix" id="qi-prefix"></span>
+                </div>
+                <div class="sc-qi-count" id="qi-count">0</div>
+                <span class="sc-qi-unit">antrian</span>
+            </div>
+
+            <!-- Tombol aksi -->
+            <div class="sc-actions">
+                <button class="sc-btn sc-btn-next" id="btn-next" onclick="callNext()">
+                    <span class="sc-btn-icon">&#9658;</span>
+                    <span>PANGGIL BERIKUTNYA</span>
+                </button>
+                <div class="sc-btn-row">
+                    <button class="sc-btn sc-btn-recall" id="btn-recall" onclick="recall()" disabled>
+                        <span class="sc-btn-icon">&#128266;</span>
+                        <span>PANGGIL ULANG</span>
+                    </button>
+                    <button class="sc-btn sc-btn-complete" id="btn-complete" onclick="complete()" disabled>
+                        <span class="sc-btn-icon">&#10004;</span>
+                        <span>SELESAI</span>
+                    </button>
+                </div>
+                <button class="sc-btn sc-btn-cancel" id="btn-cancel" onclick="cancel()" disabled>
+                    <span class="sc-btn-icon">&#10006;</span>
+                    <span>LEWATI ANTRIAN INI</span>
+                </button>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script>
+    const QUEUE_TYPES = [
+        {{range .QueueTypes}}{ code: "{{.Code}}", name: "{{.Name}}", prefix: "{{.Prefix}}" },{{end}}
+    ];
+    const ALL_COUNTERS = [
+        {{range .Counters}}{ id: {{.ID}}, name: "{{.CounterName}}", number: "{{.CounterNumber}}" },{{end}}
+    ];
+</script>
+<script src="/static/js/super-counter.js"></script>
+</body>
+</html>

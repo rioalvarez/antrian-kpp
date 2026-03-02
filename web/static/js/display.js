@@ -16,6 +16,9 @@ let displaySettings = {};
 let TTS_RATE = 0.6;
 let TICKER_SPEED = 45;
 let SOUND_ENABLED = true;
+let TTS_TEMPLATE = 'Nomor antrian {nomor}, silakan menuju {loket}';
+let TTS_MODE = 'local_tts'; // 'local_tts' | 'server_audio' | 'web_speech'
+let AUDIO_VOICE = 'perempuan'; // subdirectory under /static/audio/
 
 // Audio persistence key
 const AUDIO_STORAGE_KEY = 'display_audio_enabled';
@@ -334,6 +337,22 @@ function updateDisplaySettings(settings) {
     }
     if (settings.display_tts_rate) {
         TTS_RATE = parseFloat(settings.display_tts_rate) || 0.6;
+    }
+    if (settings.display_tts_template) {
+        TTS_TEMPLATE = settings.display_tts_template;
+    }
+    if (settings.display_tts_mode) {
+        TTS_MODE = settings.display_tts_mode;
+        if (TTS_MODE === 'local_tts') {
+            window.USE_LOCAL_TTS = true;
+        } else {
+            window.USE_LOCAL_TTS = false;
+        }
+    }
+    if (settings.display_audio_voice) {
+        AUDIO_VOICE = settings.display_audio_voice;
+        // Clear cache so new voice is loaded on next announcement
+        Object.keys(serverAudioCache).forEach(k => delete serverAudioCache[k]);
     }
     if (settings.display_ticker_speed) {
         TICKER_SPEED = parseInt(settings.display_ticker_speed) || 45;
@@ -894,6 +913,12 @@ function announceQueue(queueNumber, counterName, onComplete) {
         return;
     }
 
+    // Server Audio mode: play MP3 files from server (uniform across all browsers)
+    if (TTS_MODE === 'server_audio') {
+        announceQueueServerAudio(queueNumber, counterName, onComplete);
+        return;
+    }
+
     if (!("speechSynthesis" in window)) {
         if (onComplete) onComplete();
         return;
@@ -901,7 +926,9 @@ function announceQueue(queueNumber, counterName, onComplete) {
 
     const formattedNumber = formatQueueNumberForSpeech(queueNumber);
     const formattedCounter = formatCounterNameForSpeech(counterName);
-    const text = `Nomor antrian ${formattedNumber}, silakan menuju ${formattedCounter}`;
+    const text = TTS_TEMPLATE
+        .replace('{nomor}', formattedNumber)
+        .replace('{loket}', formattedCounter);
 
     const voices = speechSynthesis.getVoices();
     const indonesianVoice = voices.find((v) => v.lang.startsWith("id"));
@@ -1055,4 +1082,104 @@ if ("speechSynthesis" in window) {
     speechSynthesis.onvoiceschanged = function () {
         console.log("Voices loaded:", speechSynthesis.getVoices().length);
     };
+}
+
+// ============================================================
+// SERVER AUDIO MODE - Memutar MP3 dari server (/static/audio/)
+// Menghasilkan suara seragam di semua browser
+// ============================================================
+
+const serverAudioCache = {};
+
+function serverLoadAudio(filename) {
+    const cacheKey = `${AUDIO_VOICE}/${filename}`;
+    if (serverAudioCache[cacheKey]) return serverAudioCache[cacheKey];
+    const audio = new Audio(`/static/audio/${AUDIO_VOICE}/${filename}`);
+    audio.preload = 'auto';
+    serverAudioCache[cacheKey] = audio;
+    return audio;
+}
+
+function serverPlayAudioFile(filename) {
+    return new Promise((resolve) => {
+        const audio = serverLoadAudio(filename);
+        const clip = audio.cloneNode();
+        clip.onended = () => resolve();
+        clip.onerror = () => { console.warn(`Server audio not found: ${filename}`); resolve(); };
+        clip.play().catch(() => resolve());
+    });
+}
+
+function serverNumberToAudioFiles(n) {
+    const files = [];
+    if (n === 0) { files.push('angka_0.mp3'); return files; }
+    if (n >= 1000) {
+        if (n >= 2000) { files.push(...serverNumberToAudioFiles(Math.floor(n / 1000))); files.push('ribu.mp3'); }
+        else { files.push('seribu.mp3'); }
+        n = n % 1000;
+        if (n === 0) return files;
+    }
+    if (n >= 100) {
+        if (n >= 200) { files.push(`angka_${Math.floor(n / 100)}.mp3`); files.push('ratus.mp3'); }
+        else { files.push('seratus.mp3'); }
+        n = n % 100;
+        if (n === 0) return files;
+    }
+    if (n >= 20) {
+        files.push(`angka_${Math.floor(n / 10) * 10}.mp3`);
+        n = n % 10;
+        if (n > 0) files.push(`angka_${n}.mp3`);
+    } else if (n >= 1) {
+        files.push(`angka_${n}.mp3`);
+    }
+    return files;
+}
+
+function serverBuildSequence(queueNumber, counterName) {
+    const files = [];
+
+    // Parse queue number (e.g. "A001" -> letters="A", number=1)
+    const qMatch = queueNumber.match(/^([A-Za-z]+)(\d+)$/);
+    const qLetters = qMatch ? qMatch[1].toUpperCase() : '';
+    const qNumber  = qMatch ? parseInt(qMatch[2], 10) : 0;
+
+    // Parse counter name
+    let cPrefix = '', cLetter = '', cNumber = 0;
+    let m = counterName.match(/^(.+?)\s+([A-Za-z])\s*(\d+)$/);
+    if (m) { cPrefix = m[1].trim(); cLetter = m[2].toUpperCase(); cNumber = parseInt(m[3], 10); }
+    else {
+        m = counterName.match(/^([A-Za-z])\s*(\d+)$/);
+        if (m) { cLetter = m[1].toUpperCase(); cNumber = parseInt(m[2], 10); }
+        else {
+            m = counterName.match(/^(.+?)\s*(\d+)$/);
+            if (m) { cPrefix = m[1].trim(); cNumber = parseInt(m[2], 10); }
+            else { cPrefix = counterName; }
+        }
+    }
+
+    // "Nomor antrian"
+    files.push('nomor_antrian.mp3');
+    // Queue letter(s)
+    for (const ch of qLetters) files.push(`huruf_${ch.toLowerCase()}.mp3`);
+    // Queue number
+    files.push(...serverNumberToAudioFiles(qNumber));
+    // "silakan menuju"
+    files.push('silakan_menuju.mp3');
+    // Counter prefix (only "loket")
+    if (cPrefix && cPrefix.toLowerCase().includes('loket')) files.push('loket.mp3');
+    // Counter letter
+    if (cLetter) files.push(`huruf_${cLetter.toLowerCase()}.mp3`);
+    // Counter number
+    if (cNumber > 0) files.push(...serverNumberToAudioFiles(cNumber));
+
+    return files;
+}
+
+async function announceQueueServerAudio(queueNumber, counterName, onComplete) {
+    const files = serverBuildSequence(queueNumber, counterName);
+    for (const file of files) {
+        await serverPlayAudioFile(file);
+        await new Promise(r => setTimeout(r, 80));
+    }
+    if (onComplete) onComplete();
 }

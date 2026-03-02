@@ -145,6 +145,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin", h.handleAdmin)
 	mux.HandleFunc("/admin/login", h.handleAdminLogin)
 	mux.HandleFunc("/admin/logout", h.handleAdminLogout)
+	mux.HandleFunc("/admin/super-counter", h.handleSuperCounter)
 	mux.HandleFunc("/display", h.handleDisplay)
 	mux.HandleFunc("/ticket", h.handleTicket)
 	mux.HandleFunc("/counters", h.handleCountersPage)
@@ -169,6 +170,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// API - Settings
 	mux.HandleFunc("/api/settings", h.handleSettings)
+
+	// API - Audio voices
+	mux.HandleFunc("/api/audio-voices", h.handleAudioVoices)
 
 	// API - Admin (requires authentication)
 	mux.HandleFunc("/api/admin/reset-queues", h.adminAPIAuth(h.handleResetQueues))
@@ -196,11 +200,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *Handler) jsonResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(data)
 }
 
 func (h *Handler) jsonError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
@@ -229,6 +235,22 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.tmpl.ExecuteTemplate(w, "admin.html", nil)
+}
+
+func (h *Handler) handleSuperCounter(w http.ResponseWriter, r *http.Request) {
+	if !h.isAuthenticated(r) {
+		http.Redirect(w, r, "/admin/login", http.StatusFound)
+		return
+	}
+
+	counters, _ := h.db.ListCounters()
+	queueTypes, _ := h.db.ListQueueTypes(true)
+
+	data := map[string]interface{}{
+		"Counters":   counters,
+		"QueueTypes": queueTypes,
+	}
+	h.tmpl.ExecuteTemplate(w, "super_counter.html", data)
 }
 
 func (h *Handler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
@@ -1193,6 +1215,32 @@ func (h *Handler) handlePrintJobAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		h.jsonResponse(w, job)
 	}
+}
+
+// Audio voices handler — lists available voice subdirectories under web/static/audio/
+func (h *Handler) handleAudioVoices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	entries, err := fs.ReadDir(h.staticFS, "audio")
+	if err != nil {
+		// Return empty list if directory doesn't exist yet
+		h.jsonResponse(w, []string{})
+		return
+	}
+
+	var voices []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			voices = append(voices, entry.Name())
+		}
+	}
+	if voices == nil {
+		voices = []string{}
+	}
+	h.jsonResponse(w, voices)
 }
 
 // Report handlers

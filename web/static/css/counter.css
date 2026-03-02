@@ -72,15 +72,6 @@
     letter-spacing: -0.01em;
 }
 
-.counter-number {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-top: 0.25rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
 /* Main content */
 .counter-main {
     flex: 1;

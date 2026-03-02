@@ -1063,6 +1063,9 @@ async function loadDisplayAppearanceSettings() {
         if (settings.display_logo_text) document.getElementById('display-logo-text').value = settings.display_logo_text;
         if (settings.display_recent_calls_count) document.getElementById('display-recent-calls-count').value = settings.display_recent_calls_count;
         if (settings.display_history_count) document.getElementById('display-history-count').value = settings.display_history_count;
+        if (settings.display_tts_template) {
+            document.getElementById('display-tts-template').value = settings.display_tts_template;
+        }
         if (settings.display_tts_rate) {
             document.getElementById('display-tts-rate').value = settings.display_tts_rate;
             document.getElementById('tts-rate-value').textContent = settings.display_tts_rate;
@@ -1077,6 +1080,11 @@ async function loadDisplayAppearanceSettings() {
         document.getElementById('display-show-history').checked = settings.display_show_history !== 'false';
         document.getElementById('display-show-queue-summary').checked = settings.display_show_queue_summary !== 'false';
         document.getElementById('display-sound-enabled').checked = settings.display_sound_enabled !== 'false';
+        if (settings.display_tts_mode) {
+            document.getElementById('display-tts-mode').value = settings.display_tts_mode;
+            onTtsModeChange();
+        }
+        await loadAudioVoices(settings.display_audio_voice || 'perempuan');
     } catch (error) {
         console.error('Failed to load display appearance settings:', error);
     }
@@ -1343,9 +1351,48 @@ async function saveDisplayWidgets() {
     }
 }
 
+// Load available audio voice packs from server
+async function loadAudioVoices(selectedVoice) {
+    try {
+        const response = await fetch('/api/audio-voices');
+        const voices = await response.json();
+
+        const select = document.getElementById('display-audio-voice');
+        select.innerHTML = '';
+
+        if (!voices || voices.length === 0) {
+            select.innerHTML = '<option value="perempuan">Perempuan (default)</option>';
+            return;
+        }
+
+        const labels = { perempuan: 'Perempuan', 'laki-laki': 'Laki-laki' };
+        voices.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = labels[v] || v.charAt(0).toUpperCase() + v.slice(1);
+            if (v === selectedVoice) opt.selected = true;
+            select.appendChild(opt);
+        });
+    } catch (error) {
+        console.error('Failed to load audio voices:', error);
+    }
+}
+
+// Show/hide voice selector based on TTS mode
+function onTtsModeChange() {
+    const mode = document.getElementById('display-tts-mode').value;
+    const voiceGroup = document.getElementById('voice-selector-group');
+    const ttsTemplateGroup = document.getElementById('display-tts-template').closest('.form-group');
+    if (voiceGroup) voiceGroup.style.display = mode === 'server_audio' ? '' : 'none';
+    if (ttsTemplateGroup) ttsTemplateGroup.style.display = mode === 'web_speech' ? '' : 'none';
+}
+
 // Save display sound settings
 async function saveDisplaySound() {
     const settings = {
+        display_tts_mode: document.getElementById('display-tts-mode').value,
+        display_audio_voice: document.getElementById('display-audio-voice').value,
+        display_tts_template: document.getElementById('display-tts-template').value,
         display_tts_rate: document.getElementById('display-tts-rate').value,
         display_ticker_speed: document.getElementById('display-ticker-speed').value,
         display_sound_enabled: document.getElementById('display-sound-enabled').checked.toString()

@@ -189,10 +189,15 @@ func (h *Hub) serveSSE(w http.ResponseWriter, r *http.Request, counterID int64) 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	clientID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), counterID)
+	clientType := ClientTypeDisplay
+	if counterID > 0 {
+		clientType = ClientTypeCounter
+	}
 	client := &Client{
-		ID:        clientID,
-		Channel:   make(chan []byte, 100),
-		CounterID: counterID,
+		ID:         clientID,
+		Channel:    make(chan []byte, 100),
+		CounterID:  counterID,
+		ClientType: clientType,
 	}
 
 	h.register <- client
