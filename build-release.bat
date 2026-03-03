@@ -1,315 +1,199 @@
 @echo off
-title Build Antrian KPP - Release Package
+title Build Antrian KPP - Server Release
 echo ================================================
-echo   Build Antrian KPP - Release Package
+echo   Build Antrian KPP - Server Release
 echo ================================================
 echo.
 
-:: Create release folder
+:: Destination folder
 set RELEASE_DIR=release
 if exist %RELEASE_DIR% rmdir /s /q %RELEASE_DIR%
-mkdir %RELEASE_DIR%
 mkdir %RELEASE_DIR%\server
 mkdir %RELEASE_DIR%\server\data
-mkdir %RELEASE_DIR%\display
 
 echo.
-echo Pilih opsi build:
-echo [1] Build TANPA database (fresh install)
-echo [2] Build DENGAN database development (include data)
+echo Pilih opsi database:
+echo [1] Tanpa database (fresh install)
+echo [2] Sertakan database development
 echo.
 set /p BUILD_OPTION="Pilihan (1/2): "
 
 echo.
 echo ================================================
-echo [1/5] Building Web Server...
+echo [1/3] Memeriksa file audio...
 echo ================================================
 
-:: Check if Go is installed
-where go >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Go is not installed!
-    echo Please install Go from https://go.dev/dl/
-    pause
-    exit /b 1
-)
+:: Audio di web/static/audio hanya diperlukan jika mode "Audio Server" (server_audio)
+:: diaktifkan di panel admin display. Mode lain (local_tts, web_speech) tidak membutuhkan
+:: file ini — file audio tetap di-embed ke binary jika ada, tapi tidak wajib.
+set AUDIO_OK=1
+if not exist web\static\audio\nomor_antrian.mp3 set AUDIO_OK=0
+if not exist web\static\audio\angka_1.mp3        set AUDIO_OK=0
+if not exist web\static\audio\huruf_a.mp3         set AUDIO_OK=0
 
-:: Build Go executable
-echo Compiling Go executable...
-go build -o %RELEASE_DIR%\server\antrian-kpp.exe .
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Failed to build Go executable!
-    pause
-    exit /b 1
-)
-echo [OK] Server executable built!
-
-:: Copy web assets
-echo Copying web assets...
-xcopy /E /I /Y /Q web %RELEASE_DIR%\server\web >nul
-echo [OK] Web assets copied!
-
-:: Copy config if exists
-if exist config.yaml (
-    copy /Y config.yaml %RELEASE_DIR%\server\ >nul
-    echo [OK] config.yaml copied!
-)
-
-:: Copy database based on option
-if "%BUILD_OPTION%"=="2" (
+if %AUDIO_OK%==0 (
+    echo [INFO] File audio tidak ditemukan di web\static\audio\
     echo.
-    echo Copying database...
-    if exist data\queue.db (
-        copy /Y data\queue.db %RELEASE_DIR%\server\data\ >nul
-        echo [OK] Database queue.db copied!
-    ) else (
-        echo [WARNING] Database not found at data\queue.db
+    echo        File audio hanya diperlukan jika mode "Audio Server"
+    echo        ^(server_audio^) diaktifkan di panel admin display.
+    echo        Mode lain ^(local_tts / web_speech^) tidak membutuhkan file ini.
+    echo.
+    echo        Jika Anda berencana menggunakan mode server_audio,
+    echo        pastikan semua file MP3 sudah ada sebelum build.
+    echo.
+    set /p AUDIO_CONFIRM="Lanjutkan build tanpa file audio? (y/n): "
+    if /i not "%AUDIO_CONFIRM%"=="y" (
+        echo Build dibatalkan.
+        pause
+        exit /b 1
     )
 ) else (
-    echo [INFO] Database will be created fresh on first run
-)
-
-:: Create start script for server
-echo @echo off > %RELEASE_DIR%\server\start-server.bat
-echo title Antrian KPP Server >> %RELEASE_DIR%\server\start-server.bat
-echo echo ======================================== >> %RELEASE_DIR%\server\start-server.bat
-echo echo   Antrian KPP Server >> %RELEASE_DIR%\server\start-server.bat
-echo echo ======================================== >> %RELEASE_DIR%\server\start-server.bat
-echo echo. >> %RELEASE_DIR%\server\start-server.bat
-echo echo Starting server... >> %RELEASE_DIR%\server\start-server.bat
-echo echo Access from this computer: http://localhost:8080 >> %RELEASE_DIR%\server\start-server.bat
-echo echo Access from other computers: http://[IP_ADDRESS]:8080 >> %RELEASE_DIR%\server\start-server.bat
-echo echo. >> %RELEASE_DIR%\server\start-server.bat
-echo echo Press Ctrl+C to stop server >> %RELEASE_DIR%\server\start-server.bat
-echo echo. >> %RELEASE_DIR%\server\start-server.bat
-echo antrian-kpp.exe >> %RELEASE_DIR%\server\start-server.bat
-echo pause >> %RELEASE_DIR%\server\start-server.bat
-
-echo.
-echo ================================================
-echo [2/5] Checking audio files...
-echo ================================================
-
-:: Check if audio files exist
-set AUDIO_COUNT=0
-if exist electron-display\audio\nomor_antrian.mp3 set /a AUDIO_COUNT+=1
-if exist electron-display\audio\angka_1.mp3 set /a AUDIO_COUNT+=1
-if exist electron-display\audio\huruf_a.mp3 set /a AUDIO_COUNT+=1
-
-if %AUDIO_COUNT% LSS 3 (
-    echo [WARNING] Audio files not found or incomplete!
-    echo.
-    echo Generating audio files from Google TTS...
-    cd electron-display
-    node generate-audio.js
-    cd ..
-    echo.
-)
-
-:: Verify audio folder
-if exist electron-display\audio (
-    for /f %%A in ('dir /b /a-d "electron-display\audio\*.mp3" 2^>nul ^| find /c /v ""') do set AUDIO_FILE_COUNT=%%A
-    echo [INFO] Found %AUDIO_FILE_COUNT% audio files
-) else (
-    echo [WARNING] Audio folder does not exist!
-    mkdir electron-display\audio
+    for /f %%A in ('dir /b /a-d "web\static\audio\*.mp3" 2^>nul ^| find /c /v ""') do set AUDIO_COUNT=%%A
+    echo [OK] %AUDIO_COUNT% file audio ditemukan di web\static\audio\
+    echo      File audio di-embed ke binary ^(digunakan saat mode "Audio Server"^).
 )
 
 echo.
 echo ================================================
-echo [3/5] Building Electron Display...
+echo [2/3] Building server...
 echo ================================================
 
-cd electron-display
-
-:: Check if Node is installed
-where node >nul 2>nul
+:: Cek Go terinstall
+where go >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo ERROR: Node.js is not installed!
-    echo Please install Node.js from https://nodejs.org/
-    cd ..
+    echo ERROR: Go tidak ditemukan!
+    echo Install dari https://go.dev/dl/
     pause
     exit /b 1
 )
 
-:: Install dependencies if needed
-if not exist node_modules (
-    echo Installing npm dependencies...
-    call npm install
+:: Build binary (go:embed menyertakan web/ + audio ke dalam exe)
+echo Compiling...
+go build -ldflags="-s -w" -o %RELEASE_DIR%\server\antrian-kpp.exe .
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: Build gagal!
+    pause
+    exit /b 1
 )
+echo [OK] antrian-kpp.exe berhasil dibuat
+echo      (web assets + audio sudah ter-embed di dalam binary)
 
-:: Build portable
-echo Building portable executable...
-call npm run build:portable
-
-cd ..
-
-:: Copy Electron build
-echo Copying Electron executable...
-for %%f in (electron-display\dist\*.exe) do (
-    copy /Y "%%f" %RELEASE_DIR%\display\ >nul
-    echo [OK] Copied: %%~nxf
-)
-
-echo.
-echo ================================================
-echo [4/5] Copying audio files...
-echo ================================================
-
-:: Copy audio folder
-if exist electron-display\audio (
-    xcopy /E /I /Y /Q electron-display\audio %RELEASE_DIR%\display\audio >nul
-
-    :: Count copied files
-    for /f %%A in ('dir /b /a-d "%RELEASE_DIR%\display\audio\*.mp3" 2^>nul ^| find /c /v ""') do set COPIED_AUDIO=%%A
-    echo [OK] Copied %COPIED_AUDIO% audio files to release\display\audio\
+:: Copy config jika ada
+if exist config.yaml (
+    copy /Y config.yaml %RELEASE_DIR%\server\ >nul
+    echo [OK] config.yaml disertakan
 ) else (
-    mkdir %RELEASE_DIR%\display\audio
-    echo [WARNING] No audio files to copy!
+    echo [INFO] config.yaml tidak ditemukan, akan dibuat otomatis saat server pertama kali dijalankan
 )
 
-:: Check for bell.mp3
-if not exist %RELEASE_DIR%\display\audio\bell.mp3 (
-    echo.
-    echo [WARNING] bell.mp3 not found!
-    echo          Download from https://freesound.org/ and add to audio folder
+:: Copy database sesuai pilihan
+if "%BUILD_OPTION%"=="2" (
+    if exist data\queue.db (
+        copy /Y data\queue.db %RELEASE_DIR%\server\data\ >nul
+        echo [OK] Database queue.db disertakan
+    ) else (
+        echo [WARNING] data\queue.db tidak ditemukan, database akan dibuat fresh
+    )
+) else (
+    echo [INFO] Database akan dibuat otomatis saat server pertama kali dijalankan
 )
 
-:: Copy config.json
-copy /Y electron-display\config.json %RELEASE_DIR%\display\ >nul
-echo [OK] config.json copied!
-
-:: Copy local-tts.js (needed for audio playback)
-copy /Y electron-display\local-tts.js %RELEASE_DIR%\display\ >nul
-echo [OK] local-tts.js copied!
+:: Buat start-server.bat
+(
+echo @echo off
+echo title Antrian KPP Server
+echo echo ========================================
+echo echo   Antrian KPP Server
+echo echo ========================================
+echo echo.
+echo echo Starting server...
+echo echo Akses dari komputer ini   : http://localhost:8080
+echo echo Akses dari komputer lain  : http://[IP_ADDRESS]:8080
+echo echo.
+echo echo Tekan Ctrl+C untuk menghentikan server
+echo echo.
+echo antrian-kpp.exe
+echo pause
+) > %RELEASE_DIR%\server\start-server.bat
+echo [OK] start-server.bat dibuat
 
 echo.
 echo ================================================
-echo [5/5] Creating documentation...
+echo [3/3] Membuat dokumentasi...
 echo ================================================
 
-:: Create README for release
 (
 echo ================================================================================
-echo                    ANTRIAN KPP - RELEASE PACKAGE
+echo                    ANTRIAN KPP - SERVER RELEASE PACKAGE
 echo ================================================================================
 echo.
 echo STRUKTUR FOLDER:
 echo.
 echo   release/
-echo   ├── server/                 # UNTUK KOMPUTER SERVER
-echo   │   ├── antrian-kpp.exe     # Aplikasi server
-echo   │   ├── start-server.bat    # Klik untuk menjalankan server
-echo   │   ├── data/               # Database
-echo   │   │   └── queue.db        # File database SQLite
-echo   │   └── web/                # Assets web
-echo   │
-echo   └── display/                # UNTUK KOMPUTER TV/DISPLAY
-echo       ├── Antrian Display*.exe # Aplikasi display
-echo       ├── config.json          # EDIT FILE INI!
-echo       └── audio/               # File suara
+echo   └── server/
+echo       ├── antrian-kpp.exe     ^<-- Jalankan file ini
+echo       ├── start-server.bat    ^<-- Atau klik file ini
+echo       ├── config.yaml         ^<-- Konfigurasi server
+echo       └── data/
+echo           └── queue.db        ^<-- Database ^(dibuat otomatis^)
+echo.
+echo CATATAN:
+echo   Binary sudah menyertakan semua web assets dan file audio.
+echo   Tidak diperlukan folder tambahan selain yang ada di atas.
 echo.
 echo ================================================================================
-echo                         PANDUAN INSTALASI
+echo                         PANDUAN INSTALASI SERVER
 echo ================================================================================
 echo.
-echo KOMPUTER SERVER:
-echo ----------------
 echo 1. Copy folder 'server' ke komputer server
 echo 2. Double-click 'start-server.bat' untuk menjalankan
-echo 3. Buka Windows Firewall, izinkan port 8080
+echo 3. Buka Windows Firewall - izinkan port 8080
 echo 4. Catat IP address server ^(jalankan: ipconfig^)
 echo.
-echo KOMPUTER DISPLAY/TV:
-echo --------------------
-echo 1. Copy folder 'display' ke komputer yang terhubung ke TV
-echo 2. PENTING: Edit file 'config.json'
-echo    - Ganti "localhost" dengan IP address server
-echo    - Contoh: "serverUrl": "http://192.168.1.100:8080"
-echo 3. Double-click 'Antrian Display*.exe' untuk menjalankan
-echo.
 echo ================================================================================
-echo                          KEYBOARD SHORTCUTS
+echo                    PANDUAN KONFIGURASI CLIENT
 echo ================================================================================
 echo.
-echo Di aplikasi Display:
-echo   F5              = Refresh halaman
-echo   F11             = Toggle fullscreen
-echo   Ctrl+Shift+D    = Buka DevTools ^(debugging^)
-echo   Ctrl+Shift+L    = Test audio lokal
-echo   Ctrl+Q          = Keluar aplikasi
+echo Setiap perangkat client ^(display, loket, mesin tiket^) perlu dikonfigurasi
+echo dengan IP address server melalui aplikasi Tauri masing-masing.
+echo.
+echo Aplikasi client diinstall terpisah dari package ini.
 echo.
 echo ================================================================================
 echo                           TROUBLESHOOTING
 echo ================================================================================
 echo.
-echo Display tidak konek ke server:
-echo   - Pastikan server sudah berjalan
-echo   - Cek IP address di config.json sudah benar
-echo   - Cek firewall sudah dibuka port 8080
-echo   - Pastikan komputer dalam jaringan yang sama
+echo Server tidak bisa diakses dari client:
+echo   - Pastikan server sudah berjalan ^(cek jendela console^)
+echo   - Buka Windows Firewall - izinkan antrian-kpp.exe atau port 8080
+echo   - Pastikan semua perangkat dalam jaringan yang sama
+echo   - Cek IP address server dengan perintah: ipconfig
 echo.
 echo Audio tidak berbunyi:
-echo   - Pastikan folder 'audio' berisi file MP3
-echo   - Cek volume Windows tidak mute
-echo   - Tekan Ctrl+Shift+L untuk test audio
+echo   - Buka panel admin ^(/admin^) lalu pilih mode audio di pengaturan display:
+echo     * local_tts  : audio MP3 bawaan aplikasi Tauri di perangkat display
+echo     * server_audio : audio MP3 yang di-embed di dalam binary server
+echo     * web_speech : TTS bawaan browser ^(tidak perlu file audio^)
+echo   - Cek volume di komputer display ^(bukan server^)
 echo.
 echo ================================================================================
 ) > %RELEASE_DIR%\README.txt
-
-echo [OK] README.txt created!
-
-:: Create config template
-(
-echo {
-echo   "serverUrl": "http://GANTI_DENGAN_IP_SERVER:8080",
-echo   "displayPath": "/display",
-echo   "fullscreen": true,
-echo   "kiosk": true,
-echo   "devTools": false,
-echo   "useLocalTTS": true
-echo }
-) > %RELEASE_DIR%\display\config.json.template
-
-echo [OK] config.json.template created!
+echo [OK] README.txt dibuat
 
 echo.
 echo ================================================
-echo              BUILD COMPLETE!
+echo           BUILD SELESAI!
 echo ================================================
 echo.
-echo Release package created in: %RELEASE_DIR%\
+echo Package tersimpan di: %RELEASE_DIR%\server\
 echo.
-echo Contents:
-echo   server\
-echo     - antrian-kpp.exe
-echo     - start-server.bat
-echo     - web\ ^(assets^)
+echo   antrian-kpp.exe     ^(binary server, sudah termasuk semua assets^)
+echo   start-server.bat
+echo   config.yaml
 if "%BUILD_OPTION%"=="2" (
-echo     - data\queue.db ^(DATABASE INCLUDED^)
+echo   data\queue.db       ^(DATABASE DISERTAKAN^)
 ) else (
-echo     - data\ ^(empty, will be created on first run^)
+echo   data\               ^(kosong, database dibuat saat server jalan^)
 )
 echo.
-echo   display\
-echo     - Antrian Display*.exe
-
-:: Count and show audio files
-for /f %%A in ('dir /b /a-d "%RELEASE_DIR%\display\audio\*.mp3" 2^>nul ^| find /c /v ""') do set FINAL_AUDIO=%%A
-echo     - audio\ ^(%FINAL_AUDIO% files^)
-echo     - config.json ^(EDIT SERVERURL!^)
-echo.
-echo ------------------------------------------------
-echo NEXT STEPS:
-echo ------------------------------------------------
-echo 1. Copy 'server' folder to server computer
-echo 2. Copy 'display' folder to TV computer
-echo 3. Edit display\config.json - change serverUrl
-echo 4. Run start-server.bat on server
-echo 5. Run Antrian Display.exe on TV
-echo.
-if not exist %RELEASE_DIR%\display\audio\bell.mp3 (
-echo [!] REMINDER: Add bell.mp3 to display\audio\
-echo.
-)
 pause

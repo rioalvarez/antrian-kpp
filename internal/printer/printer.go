@@ -20,6 +20,7 @@ var (
 	BOLD_OFF     = []byte{ESC, 'E', 0}     // Bold off
 	DOUBLE_ON    = []byte{GS, '!', 0x11}   // Double width & height
 	DOUBLE_OFF   = []byte{GS, '!', 0x00}   // Normal size
+	QUAD_ON      = []byte{GS, '!', 0x55}   // 6x width & height
 	FONT_B       = []byte{ESC, 'M', 1}     // Small font
 	FONT_A       = []byte{ESC, 'M', 0}     // Normal font
 	CUT          = []byte{GS, 'V', 66, 3}  // Partial cut with feed
@@ -123,12 +124,10 @@ func (p *Printer) PrintTicket(data TicketData, template TicketTemplate) error {
 	buf.WriteString(title + "\n")
 	buf.Write(FONT_A)
 
-	// Queue number - Large & bold
+	// Queue number - 6x size, no bold
 	buf.Write(FEED_LINE)
-	buf.Write(DOUBLE_ON)
-	buf.Write(BOLD_ON)
+	buf.Write(QUAD_ON)
 	buf.WriteString(data.QueueNumber + "\n")
-	buf.Write(BOLD_OFF)
 	buf.Write(DOUBLE_OFF)
 
 	// Type name (optional)

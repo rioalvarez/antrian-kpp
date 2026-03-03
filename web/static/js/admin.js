@@ -1389,14 +1389,18 @@ function onTtsModeChange() {
 
 // Save display sound settings
 async function saveDisplaySound() {
+    const mode = document.getElementById('display-tts-mode').value;
     const settings = {
-        display_tts_mode: document.getElementById('display-tts-mode').value,
-        display_audio_voice: document.getElementById('display-audio-voice').value,
+        display_tts_mode: mode,
         display_tts_template: document.getElementById('display-tts-template').value,
         display_tts_rate: document.getElementById('display-tts-rate').value,
         display_ticker_speed: document.getElementById('display-ticker-speed').value,
         display_sound_enabled: document.getElementById('display-sound-enabled').checked.toString()
     };
+    // Only save voice selection when in server_audio mode (selector is visible)
+    if (mode === 'server_audio') {
+        settings.display_audio_voice = document.getElementById('display-audio-voice').value;
+    }
 
     try {
         const response = await fetch('/api/settings', {
