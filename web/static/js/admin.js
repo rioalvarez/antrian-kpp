@@ -1017,7 +1017,6 @@ async function loadTicketAppearanceSettings() {
         if (settings.ticket_instruction_text) document.getElementById('ticket-instruction-text').value = settings.ticket_instruction_text;
 
         document.getElementById('ticket-auto-print').checked = settings.ticket_auto_print !== 'false';
-        document.getElementById('ticket-show-queue-count').checked = settings.ticket_show_queue_count !== 'false';
     } catch (error) {
         console.error('Failed to load ticket appearance settings:', error);
     }
@@ -1031,8 +1030,7 @@ async function saveTicketAppearance(event) {
         ticket_page_subtitle: document.getElementById('ticket-page-subtitle').value,
         ticket_welcome_text: document.getElementById('ticket-welcome-text').value,
         ticket_instruction_text: document.getElementById('ticket-instruction-text').value,
-        ticket_auto_print: document.getElementById('ticket-auto-print').checked.toString(),
-        ticket_show_queue_count: document.getElementById('ticket-show-queue-count').checked.toString()
+        ticket_auto_print: document.getElementById('ticket-auto-print').checked.toString()
     };
 
     try {
