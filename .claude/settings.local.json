@@ -32,7 +32,12 @@
       "Bash(python:*)",
       "Bash(test:*)",
       "Bash(where:*)",
-      "Bash(npm run tauri:*)"
+      "Bash(npm run tauri:*)",
+      "Bash(node --check:*)",
+      "Bash(git -C \"A:/proyek_magang/antrian-kpp\" status)",
+      "Bash(git.exe -C \"A:/proyek_magang/antrian-kpp\" status)",
+      "Bash(git.exe -C \"A:/proyek_magang/antrian-kpp\" ls-files:*)",
+      "Bash(git.exe:*)"
     ]
   }
 }

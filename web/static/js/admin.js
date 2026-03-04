@@ -840,6 +840,33 @@ async function resetQueues() {
     }
 }
 
+// Show reset counters confirmation modal
+function showResetCountersModal() {
+    document.getElementById('reset-counters-modal').classList.add('show');
+}
+
+// Reset all counters
+async function resetAllCounters() {
+    try {
+        const response = await fetch('/api/admin/reset-counters', {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to reset counters');
+        }
+
+        const result = await response.json();
+        closeModal('reset-counters-modal');
+        loadCounters();
+        loadStats();
+        alert(result.message);
+    } catch (error) {
+        console.error('Failed to reset counters:', error);
+        alert('Gagal mereset daftar loket.');
+    }
+}
+
 // ===================================
 // Ticket Design Functions
 // ===================================

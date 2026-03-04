@@ -176,6 +176,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// API - Admin (requires authentication)
 	mux.HandleFunc("/api/admin/reset-queues", h.adminAPIAuth(h.handleResetQueues))
+	mux.HandleFunc("/api/admin/reset-counters", h.adminAPIAuth(h.handleResetCounters))
 
 	// API - Reports
 	mux.HandleFunc("/api/report", h.handleReport)
@@ -189,6 +190,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// API - Print Agent (remote printing)
 	mux.HandleFunc("/api/print-agent/sse", h.handlePrintAgentSSE)
 	mux.HandleFunc("/api/print-agent/jobs/pending", h.handlePendingPrintJobs)
+	mux.HandleFunc("/api/print-agent/jobs/summary", h.handlePrintJobSummary)
+	mux.HandleFunc("/api/print-agent/jobs/retry-failed", h.handleRetryFailedJobs)
 	mux.HandleFunc("/api/print-agent/job/", h.handlePrintJobAPI)
 
 	// SSE
@@ -833,6 +836,33 @@ func (h *Handler) handleResetQueues(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Admin handler - Reset semua loket
+func (h *Handler) handleResetCounters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := h.db.ResetAllCounters(); err != nil {
+		log.Printf("Failed to reset counters: %v", err)
+		h.jsonError(w, "Failed to reset counters: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast update ke semua counter client
+	waitingCount, _ := h.db.GetWaitingCount()
+	h.hub.BroadcastAllCounters("queue_reset", models.CounterUpdateData{
+		WaitingCount: waitingCount,
+		Timestamp:    time.Now(),
+	})
+
+	log.Printf("Reset all counters")
+	h.jsonResponse(w, map[string]interface{}{
+		"status":  "success",
+		"message": "Semua loket berhasil direset",
+	})
+}
+
 // Queue Types API handlers
 
 func (h *Handler) handleQueueTypes(w http.ResponseWriter, r *http.Request) {
@@ -1129,6 +1159,54 @@ func (h *Handler) handlePendingPrintJobs(w http.ResponseWriter, r *http.Request)
 		jobs = []*models.PrintJob{}
 	}
 	h.jsonResponse(w, jobs)
+}
+
+func (h *Handler) handlePrintJobSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	pending, failed, err := h.db.GetPrintJobSummary()
+	if err != nil {
+		h.jsonError(w, "Failed to get print job summary", http.StatusInternalServerError)
+		return
+	}
+	h.jsonResponse(w, map[string]interface{}{
+		"pending":        pending,
+		"failed":         failed,
+		"agents_online":  h.hub.GetPrinterClientCount(),
+		"remote_enabled": h.config.Printer.RemoteEnabled,
+	})
+}
+
+func (h *Handler) handleRetryFailedJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	jobs, err := h.db.ListFailedPrintJobs()
+	if err != nil {
+		h.jsonError(w, "Failed to list failed jobs", http.StatusInternalServerError)
+		return
+	}
+
+	count := 0
+	for _, job := range jobs {
+		if err := h.db.RetryPrintJob(job.ID); err != nil {
+			log.Printf("Failed to retry print job #%d: %v", job.ID, err)
+			continue
+		}
+		h.hub.BroadcastPrinters("print_job", map[string]interface{}{
+			"job_id":       job.ID,
+			"queue_number": job.QueueNumber,
+		})
+		count++
+	}
+
+	log.Printf("Retried %d failed print job(s)", count)
+	h.jsonResponse(w, map[string]interface{}{"retried": count})
 }
 
 func (h *Handler) handlePrintJobAPI(w http.ResponseWriter, r *http.Request) {

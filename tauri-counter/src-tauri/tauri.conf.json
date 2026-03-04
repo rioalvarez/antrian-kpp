@@ -1,0 +1,29 @@
+{
+  "productName": "Antrian Loket",
+  "version": "1.0.0",
+  "identifier": "com.kpp.antrian-counter",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "../installer-hooks.nsi"
+      }
+    },
+    "resources": {}
+  }
+}

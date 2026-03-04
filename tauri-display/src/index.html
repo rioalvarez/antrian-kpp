@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Display Antrian</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        .card {
+            padding: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            max-width: 480px;
+            width: 90%;
+        }
+        h1 { font-size: 1.6em; margin-bottom: 12px; }
+        p { font-size: 1em; margin-bottom: 12px; color: #a0a0a0; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top-color: #4a90d9;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Form styles */
+        .form-group { margin: 16px 0; text-align: left; }
+        .form-group label {
+            display: block;
+            font-size: 0.85em;
+            color: #a0a0a0;
+            margin-bottom: 6px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 1em;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 10px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            border-color: #4a90d9;
+        }
+        .form-group input::placeholder { color: rgba(255,255,255,0.4); }
+
+        .btn {
+            display: inline-block;
+            background: #4a90d9;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            font-size: 1em;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s;
+            width: 100%;
+        }
+        .btn:hover { background: #3a7bc8; }
+        .btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .error-text { color: #ff6b6b; }
+        .success-text { color: #4ade80; }
+        .status-msg {
+            font-size: 0.9em;
+            margin-top: 12px;
+            min-height: 1.2em;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <!-- State: Connecting -->
+        <div id="state-connecting">
+            <h1>Menghubungkan ke Server...</h1>
+            <div class="spinner"></div>
+            <p id="connecting-url"></p>
+        </div>
+
+        <!-- State: Failed — show form -->
+        <div id="state-failed" class="hidden">
+            <h1 class="error-text">Server Tidak Dapat Dihubungi</h1>
+            <p>Pastikan server antrian sudah berjalan, atau ubah alamat server di bawah ini.</p>
+            <form id="serverForm">
+                <div class="form-group">
+                    <label for="serverUrlInput">Alamat Server</label>
+                    <input type="text" id="serverUrlInput" placeholder="http://192.168.1.100:8080">
+                </div>
+                <button type="submit" class="btn" id="btnSave">Simpan &amp; Hubungkan</button>
+            </form>
+            <p class="status-msg" id="statusMsg"></p>
+        </div>
+
+        <!-- State: Connected -->
+        <div id="state-connected" class="hidden">
+            <h1 class="success-text">Server Ditemukan!</h1>
+            <div class="spinner"></div>
+            <p>Memuat halaman display...</p>
+        </div>
+    </div>
+
+    <script>
+        var serverUrl = '';
+        var displayPath = '';
+
+        // Show a specific state, hide others
+        function showState(state) {
+            document.getElementById('state-connecting').classList.toggle('hidden', state !== 'connecting');
+            document.getElementById('state-failed').classList.toggle('hidden', state !== 'failed');
+            document.getElementById('state-connected').classList.toggle('hidden', state !== 'connected');
+        }
+
+        // Check server connectivity
+        function checkServer(url) {
+            return fetch(url + '/api/health', { mode: 'no-cors', cache: 'no-cache' })
+                .then(function(r) {
+                    // opaque response (no-cors) or ok = server is reachable
+                    return r.ok || r.type === 'opaque';
+                })
+                .catch(function() {
+                    return false;
+                });
+        }
+
+        // Try connecting to the server
+        function tryConnect() {
+            showState('connecting');
+            document.getElementById('connecting-url').textContent = serverUrl;
+
+            checkServer(serverUrl).then(function(ok) {
+                if (ok) {
+                    showState('connected');
+                    setTimeout(function() {
+                        window.__TAURI__.core.invoke('navigate_to_server');
+                    }, 500);
+                } else {
+                    showState('failed');
+                    document.getElementById('serverUrlInput').value = serverUrl;
+                    document.getElementById('statusMsg').textContent = '';
+                }
+            });
+        }
+
+        // Save new URL and try connecting
+        function saveAndConnect() {
+            var newUrl = document.getElementById('serverUrlInput').value.trim();
+            if (!newUrl) {
+                document.getElementById('statusMsg').textContent = 'Alamat server tidak boleh kosong.';
+                document.getElementById('statusMsg').className = 'status-msg error-text';
+                return;
+            }
+            // Remove trailing slash
+            if (newUrl.endsWith('/')) newUrl = newUrl.slice(0, -1);
+
+            var btn = document.getElementById('btnSave');
+            btn.disabled = true;
+            btn.textContent = 'Menyimpan...';
+            document.getElementById('statusMsg').textContent = '';
+
+            window.__TAURI__.core.invoke('save_server_url', { serverUrl: newUrl })
+                .then(function() {
+                    serverUrl = newUrl;
+                    btn.disabled = false;
+                    btn.textContent = 'Simpan & Hubungkan';
+                    tryConnect();
+                })
+                .catch(function(err) {
+                    btn.disabled = false;
+                    btn.textContent = 'Simpan & Hubungkan';
+                    document.getElementById('statusMsg').textContent = 'Gagal menyimpan: ' + err;
+                    document.getElementById('statusMsg').className = 'status-msg error-text';
+                });
+        }
+
+        // Form submit menangani klik button DAN Enter di input secara native
+        document.getElementById('serverForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveAndConnect();
+        });
+
+        // Startup: get config from Tauri, then check connection
+        window.__TAURI__.core.invoke('get_server_config')
+            .then(function(config) {
+                serverUrl = config.serverUrl;
+                displayPath = config.displayPath;
+                tryConnect();
+            })
+            .catch(function(err) {
+                console.error('Failed to get config:', err);
+                showState('failed');
+                document.getElementById('serverUrlInput').value = 'http://localhost:8080';
+                serverUrl = 'http://localhost:8080';
+                displayPath = '/display';
+            });
+    </script>
+</body>
+</html>

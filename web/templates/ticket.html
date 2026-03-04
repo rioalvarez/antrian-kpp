@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ambil Nomor Antrian</title>
     <link rel="stylesheet" href="/static/css/ticket.css">
+    <style>
+        #print-status-bar {
+            display: none;
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 10px 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            z-index: 1000;
+            transition: background 0.3s;
+        }
+        #print-status-bar.status-offline { background: #6b7280; color: #fff; }
+        #print-status-bar.status-pending { background: #d97706; color: #fff; }
+        #print-status-bar.status-failed  { background: #dc2626; color: #fff; }
+        #print-retry-btn {
+            background: rgba(255,255,255,0.25);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.5);
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        #print-retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
 </head>
 <body class="ticket-body">
     <div class="ticket-container">
@@ -38,6 +66,13 @@
         <footer class="ticket-footer">
             <a href="/display">Lihat Display Antrian</a>
         </footer>
+    </div>
+
+    <!-- Print Status Bar -->
+    <div id="print-status-bar">
+        <span id="print-status-icon"></span>
+        <span id="print-status-text"></span>
+        <button id="print-retry-btn" onclick="retryFailedJobs()" style="display:none">↩ Coba Lagi</button>
     </div>
 
     <!-- Queue Ticket Modal -->
@@ -205,6 +240,66 @@
                 closeTicketModal();
             }
         });
+
+        // Print status bar
+        async function checkPrintStatus() {
+            try {
+                const res = await fetch('/api/print-agent/jobs/summary');
+                if (!res.ok) return;
+                const data = await res.json();
+                updatePrintStatusBar(data);
+            } catch (e) { /* silent */ }
+        }
+
+        function updatePrintStatusBar(data) {
+            const bar   = document.getElementById('print-status-bar');
+            const text  = document.getElementById('print-status-text');
+            const icon  = document.getElementById('print-status-icon');
+            const retry = document.getElementById('print-retry-btn');
+
+            if (!data.remote_enabled) {
+                bar.style.display = 'none';
+                return;
+            }
+
+            bar.classList.remove('status-offline', 'status-pending', 'status-failed');
+            retry.style.display = 'none';
+
+            if (data.agents_online === 0) {
+                bar.style.display = 'flex';
+                bar.classList.add('status-offline');
+                icon.textContent = '🖨️';
+                text.textContent = 'Printer tidak terhubung';
+            } else if (data.failed > 0) {
+                bar.style.display = 'flex';
+                bar.classList.add('status-failed');
+                icon.textContent = '⚠️';
+                text.textContent = `${data.failed} tiket gagal dicetak`;
+                retry.style.display = 'inline-block';
+            } else if (data.pending > 0) {
+                bar.style.display = 'flex';
+                bar.classList.add('status-pending');
+                icon.textContent = '⏳';
+                text.textContent = `${data.pending} tiket sedang antri cetak...`;
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        async function retryFailedJobs() {
+            const btn = document.getElementById('print-retry-btn');
+            btn.disabled = true;
+            btn.textContent = 'Mencoba...';
+            try {
+                await fetch('/api/print-agent/jobs/retry-failed', { method: 'POST' });
+                setTimeout(checkPrintStatus, 1500);
+            } catch (e) { /* silent */ }
+            btn.disabled = false;
+            btn.textContent = '↩ Coba Lagi';
+        }
+
+        checkPrintStatus();
+        setInterval(checkPrintStatus, 10000);
     </script>
 </body>
 </html>

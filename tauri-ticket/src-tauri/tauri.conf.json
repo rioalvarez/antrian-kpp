@@ -1,0 +1,32 @@
+{
+  "productName": "Antrian Tiket",
+  "version": "1.0.0",
+  "identifier": "com.kpp.antrian-ticket",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    },
+    "externalBin": [
+      "binaries/print-agent"
+    ],
+    "resources": {
+      "../config.json": "config.json"
+    }
+  }
+}

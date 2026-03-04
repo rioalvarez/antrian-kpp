@@ -23,13 +23,20 @@ go.work
 go.work.sum
 
 # ==========================================
-# Electron & Tauri apps (seluruh folder)
+# Electron (legacy)
 # ==========================================
 electron-display/
 electron-counter/
-tauri-display/
-tauri-counter/
-tauri-ticket/
+
+# ==========================================
+# Tauri — abaikan build artifacts & deps saja
+# ==========================================
+tauri-*/src-tauri/target/
+tauri-*/node_modules/
+# Runtime config (dibuat per-mesin, bukan source code)
+tauri-*/config.json
+# File audio MP3 (besar, deploy manual)
+tauri-display/audio/*.mp3
 
 # ==========================================
 # Release / build output

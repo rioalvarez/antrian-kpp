@@ -1,0 +1,20 @@
+[package]
+name = "antrian-display"
+version = "1.0.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+percent-encoding = "2"
+url = "2"
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-global-shortcut = "2"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

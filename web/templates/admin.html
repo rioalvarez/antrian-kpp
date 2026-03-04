@@ -332,13 +332,22 @@
                                     <p class="header-desc">Atur loket pelayanan yang tersedia</p>
                                 </div>
                             </div>
-                            <button class="btn btn-primary" onclick="showAddCounterModal()">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                                </svg>
-                                Tambah Loket
-                            </button>
+                            <div style="display:flex;gap:0.5rem;">
+                                <button class="btn" onclick="showResetCountersModal()" style="background:transparent;color:#ef4444;border:1px solid #ef4444;">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                    Reset Daftar Loket
+                                </button>
+                                <button class="btn btn-primary" onclick="showAddCounterModal()">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                    Tambah Loket
+                                </button>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="counters-grid" id="counters-list">
@@ -992,6 +1001,31 @@
             <div class="form-actions">
                 <button type="button" class="btn" onclick="closeModal('reset-modal')">Batal</button>
                 <button type="button" class="btn btn-danger" onclick="resetQueues()">Ya, Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Counters Confirmation Modal -->
+    <div class="modal" id="reset-counters-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Reset Daftar Loket</h3>
+                <button class="modal-close" onclick="closeModal('reset-counters-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="warning-icon">&#9888;</div>
+                <p class="warning-text"><strong>Peringatan!</strong></p>
+                <p>Anda akan menghapus <strong>SELURUH DATA LOKET</strong>:</p>
+                <ul>
+                    <li>Semua loket yang terdaftar akan dihapus</li>
+                    <li>Seluruh riwayat panggilan akan dihapus</li>
+                    <li>ID loket akan dimulai ulang dari angka 1</li>
+                </ul>
+                <p class="warning-text">Tindakan ini tidak dapat dibatalkan!</p>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn" onclick="closeModal('reset-counters-modal')">Batal</button>
+                <button type="button" class="btn btn-danger" onclick="resetAllCounters()">Ya, Reset Loket</button>
             </div>
         </div>
     </div>

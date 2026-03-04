@@ -748,6 +748,41 @@ func (d *DB) DeleteCounter(id int64) error {
 	return nil
 }
 
+// ResetAllCounters menghapus seluruh data loket dan mereset autoincrement ID ke 1
+func (d *DB) ResetAllCounters() error {
+	tx, err := d.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Lepaskan relasi counter dari semua antrian
+	if _, err = tx.Exec(`UPDATE queues SET counter_id = NULL`); err != nil {
+		return fmt.Errorf("failed to update queues: %w", err)
+	}
+
+	// Hapus semua call history
+	if _, err = tx.Exec(`DELETE FROM call_history`); err != nil {
+		return fmt.Errorf("failed to delete call history: %w", err)
+	}
+
+	// Hapus semua loket
+	if _, err = tx.Exec(`DELETE FROM counters`); err != nil {
+		return fmt.Errorf("failed to delete counters: %w", err)
+	}
+
+	// Reset autoincrement agar ID mulai dari 1 lagi
+	if _, err = tx.Exec(`DELETE FROM sqlite_sequence WHERE name='counters'`); err != nil {
+		return fmt.Errorf("failed to reset sequence: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // Call history operations
 
 func (d *DB) AddCallHistory(queueID, counterID int64, action models.CallAction) error {
@@ -1160,6 +1195,83 @@ func (d *DB) ListPendingPrintJobs() ([]*models.PrintJob, error) {
 		jobs = append(jobs, pj)
 	}
 	return jobs, nil
+}
+
+// GetPrintJobSummary returns counts of pending and failed print jobs for today.
+func (d *DB) GetPrintJobSummary() (pending int, failed int, err error) {
+	var p, f sql.NullInt64
+	err = d.QueryRow(`
+		SELECT
+			SUM(CASE WHEN status IN ('pending', 'printing') THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END)
+		FROM print_jobs
+		WHERE DATE(created_at) = DATE('now', 'localtime')
+	`).Scan(&p, &f)
+	if err != nil {
+		return
+	}
+	if p.Valid {
+		pending = int(p.Int64)
+	}
+	if f.Valid {
+		failed = int(f.Int64)
+	}
+	return
+}
+
+// ListFailedPrintJobs returns all failed print jobs for today.
+func (d *DB) ListFailedPrintJobs() ([]*models.PrintJob, error) {
+	rows, err := d.Query(`
+		SELECT id, queue_number, type_name, date_time, template_json, status,
+			agent_id, created_at, claimed_at, completed_at, error_message
+		FROM print_jobs
+		WHERE status = 'failed'
+		AND DATE(created_at) = DATE('now', 'localtime')
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []*models.PrintJob
+	for rows.Next() {
+		pj := &models.PrintJob{}
+		var agentID, errorMsg sql.NullString
+		if err := rows.Scan(&pj.ID, &pj.QueueNumber, &pj.TypeName, &pj.DateTime,
+			&pj.TemplateJSON, &pj.Status, &agentID, &pj.CreatedAt,
+			&pj.ClaimedAt, &pj.CompletedAt, &errorMsg); err != nil {
+			return nil, err
+		}
+		if agentID.Valid {
+			pj.AgentID = agentID.String
+		}
+		if errorMsg.Valid {
+			pj.ErrorMessage = errorMsg.String
+		}
+		pj.PrepareJSON()
+		jobs = append(jobs, pj)
+	}
+	return jobs, nil
+}
+
+// RetryPrintJob resets a failed print job back to pending status.
+// Returns sql.ErrNoRows if the job was not in 'failed' state.
+func (d *DB) RetryPrintJob(id int64) error {
+	result, err := d.Exec(`
+		UPDATE print_jobs
+		SET status='pending', agent_id=NULL,
+			claimed_at=NULL, completed_at=NULL, error_message=NULL
+		WHERE id=? AND status='failed'
+	`, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // CleanupOldPrintJobs removes completed/failed print jobs older than the given hours.

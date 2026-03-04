@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antrian Loket</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f6f9;
+            color: #18181b;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        .card {
+            padding: 40px;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+            max-width: 440px;
+            width: 90%;
+        }
+        h1 { font-size: 1.4em; margin-bottom: 8px; }
+        p  { font-size: 0.95em; color: #71717a; margin-bottom: 10px; }
+
+        .spinner {
+            width: 32px; height: 32px;
+            border: 3px solid #e4e4e7;
+            border-top-color: #0ea5e9;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 16px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Nomor loket besar */
+        .loket-badge {
+            font-size: 2em;
+            font-weight: 800;
+            color: #0ea5e9;
+            line-height: 1.2;
+            margin: 12px 0 4px;
+            word-break: break-word;
+        }
+        .loket-label {
+            font-size: 0.8em;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #a1a1aa;
+            margin-bottom: 0;
+        }
+        /* Progress bar countdown */
+        .progress-wrap {
+            width: 100%;
+            height: 4px;
+            background: #f4f4f5;
+            border-radius: 4px;
+            margin: 14px 0 10px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #0ea5e9;
+            border-radius: 4px;
+            transition: width 1s linear;
+        }
+        .countdown-text {
+            font-size: 0.82em;
+            color: #a1a1aa;
+            margin-bottom: 14px;
+        }
+
+        /* Form */
+        .form-group { margin: 16px 0; text-align: left; }
+        .form-group label {
+            display: block;
+            font-size: 0.85em;
+            color: #71717a;
+            margin-bottom: 6px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 1em;
+            border: 2px solid #e4e4e7;
+            border-radius: 10px;
+            background: #fafafa;
+            color: #18181b;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus { border-color: #0ea5e9; }
+        .form-group input::placeholder { color: #a1a1aa; }
+
+        .btn {
+            display: block;
+            width: 100%;
+            background: #0ea5e9;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            font-size: 1em;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+        .btn:hover     { background: #0284c7; }
+        .btn:disabled  { background: #d4d4d8; cursor: not-allowed; }
+
+        .btn-link {
+            background: none;
+            border: none;
+            color: #0ea5e9;
+            font-size: 0.88em;
+            cursor: pointer;
+            padding: 4px 0;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .btn-link:hover { color: #0284c7; }
+
+        .error-text   { color: #ef4444; }
+        .success-text { color: #22c55e; }
+        .status-msg   { font-size: 0.88em; margin-top: 10px; min-height: 1.2em; }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #f4f4f5;
+            margin: 18px 0 14px;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+
+        <!-- State: Connecting -->
+        <div id="state-connecting">
+            <h1>Menghubungkan ke Server...</h1>
+            <div class="spinner"></div>
+            <p id="connecting-url" style="font-size:0.82em; word-break:break-all;"></p>
+        </div>
+
+        <!-- State: Connected (loket tersimpan — auto-navigate dengan countdown) -->
+        <div id="state-saved" class="hidden">
+            <p class="loket-label">Loket</p>
+            <div class="loket-badge" id="savedLoketNumber"></div>
+            <p style="color:#71717a; font-size:0.88em; margin-top:8px;">Server ditemukan. Menghubungkan...</p>
+
+            <div class="progress-wrap">
+                <div class="progress-bar" id="progressBar" style="width:100%"></div>
+            </div>
+            <p class="countdown-text" id="countdownText"></p>
+
+            <hr class="divider">
+            <button type="button" class="btn-link" id="btnGantiLoket">
+                Pilih Loket Lain
+            </button>
+        </div>
+
+        <!-- State: Connected (belum ada loket — langsung ke /counters) -->
+        <div id="state-no-counter" class="hidden">
+            <h1 class="success-text">Server Ditemukan!</h1>
+            <div class="spinner"></div>
+            <p>Membuka halaman pilih loket...</p>
+        </div>
+
+        <!-- State: Failed -->
+        <div id="state-failed" class="hidden">
+            <h1 class="error-text">Server Tidak Dapat Dihubungi</h1>
+            <p>Pastikan server antrian sudah berjalan, atau ubah alamat server di bawah ini.</p>
+            <form id="failedForm">
+                <div class="form-group">
+                    <label for="serverUrlInput">Alamat Server</label>
+                    <input type="text" id="serverUrlInput" placeholder="http://192.168.1.100:8080">
+                </div>
+                <button type="submit" class="btn" id="btnSave">Simpan &amp; Hubungkan</button>
+            </form>
+            <p class="status-msg" id="statusMsg"></p>
+        </div>
+
+    </div>
+
+    <script>
+        var serverUrl    = '';
+        var counterId    = null;
+        var counterName  = null;
+        var autoTimer    = null;
+        var COUNTDOWN_SEC = 3;
+
+        // --- State ---
+        function showState(state) {
+            document.getElementById('state-connecting').classList.toggle('hidden', state !== 'connecting');
+            document.getElementById('state-saved').classList.toggle('hidden',      state !== 'saved');
+            document.getElementById('state-no-counter').classList.toggle('hidden', state !== 'no-counter');
+            document.getElementById('state-failed').classList.toggle('hidden',     state !== 'failed');
+        }
+
+        // --- Server Check ---
+        function checkServer(url) {
+            return fetch(url + '/api/health', { mode: 'no-cors', cache: 'no-cache' })
+                .then(function(r) { return r.ok || r.type === 'opaque'; })
+                .catch(function()  { return false; });
+        }
+
+        // --- Countdown ---
+        function startCountdown(seconds, onDone) {
+            clearCountdown();
+            var remaining = seconds;
+            var bar = document.getElementById('progressBar');
+            var txt = document.getElementById('countdownText');
+
+            // Set progress bar ke penuh dulu, lalu animasi mengecil
+            bar.style.transition = 'none';
+            bar.style.width = '100%';
+
+            // Trigger reflow agar transition bisa berjalan
+            bar.offsetWidth;
+            bar.style.transition = 'width ' + seconds + 's linear';
+            bar.style.width = '0%';
+
+            function tick() {
+                txt.textContent = 'Otomatis terhubung dalam ' + remaining + ' detik';
+            }
+            tick();
+
+            autoTimer = setInterval(function() {
+                remaining--;
+                if (remaining <= 0) {
+                    clearCountdown();
+                    onDone();
+                } else {
+                    tick();
+                }
+            }, 1000);
+        }
+
+        function clearCountdown() {
+            if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+        }
+
+        // --- Navigate ---
+        function goToCounter(id) {
+            clearCountdown();
+            window.__TAURI__.core.invoke('navigate_to_counter', { counterId: id });
+        }
+
+        function goToCounters() {
+            clearCountdown();
+            window.__TAURI__.core.invoke('navigate_to_counters');
+        }
+
+        // --- Main Flow ---
+        function tryConnect() {
+            showState('connecting');
+            document.getElementById('connecting-url').textContent = serverUrl;
+
+            checkServer(serverUrl).then(function(ok) {
+                if (ok) {
+                    onServerOk();
+                } else {
+                    document.getElementById('serverUrlInput').value = serverUrl;
+                    document.getElementById('statusMsg').textContent = '';
+                    showState('failed');
+                }
+            });
+        }
+
+        function onServerOk() {
+            if (counterId) {
+                // Tampilkan nama loket langsung dari config (tersimpan saat user pilih)
+                showSavedState(counterName || String(counterId));
+            } else {
+                // Belum ada loket — langsung buka /counters
+                showState('no-counter');
+                setTimeout(goToCounters, 600);
+            }
+        }
+
+        function showSavedState(label) {
+            document.getElementById('savedLoketNumber').textContent = label;
+            showState('saved');
+            startCountdown(COUNTDOWN_SEC, function() {
+                goToCounter(counterId);
+            });
+        }
+
+        // Tombol "Pilih Loket Lain"
+        document.getElementById('btnGantiLoket').addEventListener('click', function() {
+            goToCounters();
+        });
+
+        // Form server URL (state failed)
+        document.getElementById('failedForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var newUrl = document.getElementById('serverUrlInput').value.trim();
+            if (!newUrl) return;
+            if (newUrl.endsWith('/')) newUrl = newUrl.slice(0, -1);
+
+            var btn = document.getElementById('btnSave');
+            btn.disabled = true;
+            btn.textContent = 'Menghubungkan...';
+            document.getElementById('statusMsg').textContent = '';
+
+            window.__TAURI__.core.invoke('save_server_url', { serverUrl: newUrl })
+                .then(function() {
+                    serverUrl = newUrl;
+                    btn.disabled = false;
+                    btn.textContent = 'Simpan & Hubungkan';
+                    tryConnect();
+                })
+                .catch(function(err) {
+                    btn.disabled = false;
+                    btn.textContent = 'Simpan & Hubungkan';
+                    document.getElementById('statusMsg').textContent = 'Gagal menyimpan: ' + err;
+                    document.getElementById('statusMsg').className = 'status-msg error-text';
+                });
+        });
+
+        // --- Startup ---
+        window.__TAURI__.core.invoke('get_server_config')
+            .then(function(cfg) {
+                serverUrl   = cfg.serverUrl || 'http://localhost:8080';
+                counterId   = (cfg.counterId && cfg.counterId >= 1) ? cfg.counterId : null;
+                counterName = cfg.counterName || null;
+                tryConnect();
+            })
+            .catch(function(err) {
+                console.error('Gagal muat config:', err);
+                serverUrl = 'http://localhost:8080';
+                counterId = null;
+                document.getElementById('serverUrlInput').value = serverUrl;
+                showState('failed');
+            });
+    </script>
+</body>
+</html>

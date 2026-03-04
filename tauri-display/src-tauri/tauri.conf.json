@@ -1,0 +1,34 @@
+{
+  "productName": "Antrian Display",
+  "version": "1.0.0",
+  "identifier": "com.kpp.antrian-display",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: local-audio: data: blob:; media-src 'self' local-audio: http: https: data: blob:; connect-src 'self' http: https: ws: wss:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    },
+    "resources": {
+      "../config.json": "config.json",
+      "../local-tts.js": "local-tts.js",
+      "../audio": "audio",
+      "./js": "js",
+      "./web": "web"
+    }
+  }
+}
