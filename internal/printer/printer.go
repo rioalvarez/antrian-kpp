@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -13,40 +14,51 @@ import (
 var (
 	ESC          = byte(0x1B)
 	GS           = byte(0x1D)
-	INIT         = []byte{ESC, '@'}        // Initialize printer
-	ALIGN_CENTER = []byte{ESC, 'a', 1}     // Center alignment
-	ALIGN_LEFT   = []byte{ESC, 'a', 0}     // Left alignment
-	BOLD_ON      = []byte{ESC, 'E', 1}     // Bold on
-	BOLD_OFF     = []byte{ESC, 'E', 0}     // Bold off
-	DOUBLE_ON    = []byte{GS, '!', 0x11}   // Double width & height
-	DOUBLE_OFF   = []byte{GS, '!', 0x00}   // Normal size
-	QUAD_ON      = []byte{GS, '!', 0x55}   // 6x width & height
-	FONT_B       = []byte{ESC, 'M', 1}     // Small font
-	FONT_A       = []byte{ESC, 'M', 0}     // Normal font
-	CUT          = []byte{GS, 'V', 66, 3}  // Partial cut with feed
-	FEED_LINE    = []byte{ESC, 'd', 1}     // Feed 1 line
-	FEED_LINES   = []byte{ESC, 'd', 3}     // Feed 3 lines
+	INIT         = []byte{ESC, '@'}       // Initialize printer
+	ALIGN_CENTER = []byte{ESC, 'a', 1}    // Center alignment
+	ALIGN_LEFT   = []byte{ESC, 'a', 0}    // Left alignment
+	BOLD_ON      = []byte{ESC, 'E', 1}    // Bold on
+	BOLD_OFF     = []byte{ESC, 'E', 0}    // Bold off
+	SIZE_6X      = []byte{GS, '!', 0x55}  // 6× width & height (80mm queue number)
+	SIZE_4X      = []byte{GS, '!', 0x33}  // 4× width & height (58mm queue number)
+	SIZE_NORMAL  = []byte{GS, '!', 0x00}  // Normal size
+	FONT_B       = []byte{ESC, 'M', 1}    // Small font
+	FONT_A       = []byte{ESC, 'M', 0}    // Normal font
+	FEED_LINE    = []byte{ESC, 'd', 1}    // Feed 1 line
+)
+
+// Paper size constants
+const (
+	Paper80mm = "80mm"
+	Paper58mm = "58mm"
 )
 
 // PrinterConfig holds printer configuration
 type PrinterConfig struct {
-	PrinterName string // Windows printer name (e.g., "ECO80")
+	PrinterName string
 	Enabled     bool
 }
 
 // TicketTemplate holds the ticket design template
 type TicketTemplate struct {
-	Header        string
-	Subheader     string
-	Title         string
-	Footer1       string
-	Footer2       string
-	Thanks        string
-	ShowSubheader bool
-	ShowType      bool
-	ShowDatetime  bool
-	ShowFooter    bool
-	ShowThanks    bool
+	Header    string `json:"header"`
+	Subheader string `json:"subheader"`
+	Title     string `json:"title"`
+	Footer1   string `json:"footer1"`
+	Footer2   string `json:"footer2"`
+	Thanks    string `json:"thanks"`
+
+	ShowSubheader bool `json:"show_subheader"`
+	ShowType      bool `json:"show_type"`
+	ShowDatetime  bool `json:"show_datetime"`
+	ShowFooter    bool `json:"show_footer"`
+	ShowThanks    bool `json:"show_thanks"`
+
+	// Paper / hardware settings — set per machine, serialised into print jobs
+	// so remote agents receive the value set in admin. Agents may override
+	// with their own local config (see cmd/print-agent/agent.go).
+	PaperSize string `json:"paper_size"` // "80mm" (default) or "58mm"
+	FeedLines int    `json:"feed_lines"` // blank lines before cut (1–3)
 }
 
 // DefaultTemplate returns the default ticket template
@@ -63,6 +75,8 @@ func DefaultTemplate() TicketTemplate {
 		ShowDatetime:  true,
 		ShowFooter:    true,
 		ShowThanks:    true,
+		PaperSize:     Paper80mm,
+		FeedLines:     1,
 	}
 }
 
@@ -83,22 +97,47 @@ type TicketData struct {
 	DateTime    string
 }
 
+// paperLayout returns layout constants derived from paper size.
+//
+//	charWidth  – printable characters per line (used for separator length)
+//	numberSize – ESC/POS command for the large queue-number font
+func paperLayout(paperSize string) (charWidth int, numberSize []byte) {
+	if paperSize == Paper58mm {
+		return 24, SIZE_4X // 4× fits comfortably on 58 mm
+	}
+	return 32, SIZE_6X // 6× looks great on 80 mm
+}
+
 // PrintTicket prints a queue ticket to the thermal printer
-func (p *Printer) PrintTicket(data TicketData, template TicketTemplate) error {
+func (p *Printer) PrintTicket(data TicketData, tmpl TicketTemplate) error {
 	if !p.config.Enabled {
 		return fmt.Errorf("printer is disabled")
 	}
 
-	// Build ESC/POS commands
-	var buf bytes.Buffer
+	// Resolve paper size (fallback to 80 mm)
+	paperSize := tmpl.PaperSize
+	if paperSize != Paper80mm && paperSize != Paper58mm {
+		paperSize = Paper80mm
+	}
+	charWidth, numberSize := paperLayout(paperSize)
+	separator := strings.Repeat("-", charWidth) + "\n"
 
-	// Initialize printer
+	// Feed lines before cut — clamp to sensible range
+	feedLines := tmpl.FeedLines
+	if feedLines < 1 {
+		feedLines = 1
+	}
+	if feedLines > 5 {
+		feedLines = 5
+	}
+
+	var buf bytes.Buffer
 	buf.Write(INIT)
 
-	// Header - Center aligned, bold
+	// ── Header ───────────────────────────────────────────────────────────────
 	buf.Write(ALIGN_CENTER)
 	buf.Write(BOLD_ON)
-	header := template.Header
+	header := tmpl.Header
 	if header == "" {
 		header = "SISTEM ANTRIAN"
 	}
@@ -106,61 +145,55 @@ func (p *Printer) PrintTicket(data TicketData, template TicketTemplate) error {
 	buf.Write(BOLD_OFF)
 
 	// Subheader (optional)
-	if template.ShowSubheader && template.Subheader != "" {
+	if tmpl.ShowSubheader && tmpl.Subheader != "" {
 		buf.Write(FONT_B)
-		buf.WriteString(template.Subheader + "\n")
+		buf.WriteString(tmpl.Subheader + "\n")
 		buf.Write(FONT_A)
 	}
 
-	// Dashed line
-	buf.WriteString("--------------------------------\n")
+	buf.WriteString(separator)
 
-	// Title
+	// ── Queue number ─────────────────────────────────────────────────────────
 	buf.Write(FONT_B)
-	title := template.Title
+	title := tmpl.Title
 	if title == "" {
 		title = "NOMOR ANTRIAN ANDA"
 	}
 	buf.WriteString(title + "\n")
 	buf.Write(FONT_A)
 
-	// Queue number - 6x size, no bold
 	buf.Write(FEED_LINE)
-	buf.Write(QUAD_ON)
+	buf.Write(numberSize)
 	buf.WriteString(data.QueueNumber + "\n")
-	buf.Write(DOUBLE_OFF)
+	buf.Write(SIZE_NORMAL)
 
 	// Type name (optional)
-	if template.ShowType {
+	if tmpl.ShowType {
 		buf.Write(FEED_LINE)
 		buf.Write(BOLD_ON)
 		buf.WriteString(data.TypeName + "\n")
 		buf.Write(BOLD_OFF)
 	}
 
-	// Dashed line
-	buf.WriteString("--------------------------------\n")
+	buf.WriteString(separator)
 
-	// DateTime (optional)
-	if template.ShowDatetime {
+	// ── DateTime (optional) ──────────────────────────────────────────────────
+	if tmpl.ShowDatetime {
 		buf.Write(FONT_B)
 		buf.WriteString(data.DateTime + "\n")
 		buf.Write(FONT_A)
 	}
 
-	// Footer (optional)
-	if template.ShowFooter {
-		// Dashed line
-		buf.WriteString("--------------------------------\n")
-
+	// ── Footer (optional) ────────────────────────────────────────────────────
+	if tmpl.ShowFooter {
+		buf.WriteString(separator)
 		buf.Write(FONT_B)
-		footer1 := template.Footer1
+		footer1 := tmpl.Footer1
 		if footer1 == "" {
 			footer1 = "Mohon menunggu hingga"
 		}
 		buf.WriteString(footer1 + "\n")
-
-		footer2 := template.Footer2
+		footer2 := tmpl.Footer2
 		if footer2 == "" {
 			footer2 = "nomor Anda dipanggil"
 		}
@@ -168,11 +201,11 @@ func (p *Printer) PrintTicket(data TicketData, template TicketTemplate) error {
 		buf.Write(FONT_A)
 	}
 
-	// Thanks message (optional)
-	if template.ShowThanks {
+	// Thanks (optional)
+	if tmpl.ShowThanks {
 		buf.WriteString("\n")
 		buf.Write(FONT_B)
-		thanks := template.Thanks
+		thanks := tmpl.Thanks
 		if thanks == "" {
 			thanks = "Terima kasih"
 		}
@@ -180,11 +213,10 @@ func (p *Printer) PrintTicket(data TicketData, template TicketTemplate) error {
 		buf.Write(FONT_A)
 	}
 
-	// Feed and cut
-	buf.Write(FEED_LINES)
-	buf.Write(CUT)
+	// ── Feed + partial cut (single command, no wasted lines) ─────────────────
+	// GS V 0x42 n  →  feed n lines then partial cut
+	buf.Write([]byte{GS, 'V', 0x42, byte(feedLines)})
 
-	// Send to printer
 	return p.sendToPrinter(buf.Bytes())
 }
 
@@ -334,7 +366,6 @@ Add-Type -TypeDefinition $helper -Language CSharp -ErrorAction SilentlyContinue
 
 // escapeForPS escapes a string for use in PowerShell
 func escapeForPS(s string) string {
-	// Replace backslashes for PowerShell path
 	result := ""
 	for _, c := range s {
 		if c == '\\' {
@@ -363,9 +394,7 @@ func (p *Printer) TestPrint() error {
 	buf.WriteString("\n")
 	buf.WriteString("Jika Anda melihat ini,\n")
 	buf.WriteString("printer berfungsi dengan baik!\n")
-	buf.Write(FEED_LINES)
-	buf.Write(CUT)
-
+	buf.Write([]byte{GS, 'V', 0x42, 2}) // feed 2 lines + cut
 	return p.sendToPrinter(buf.Bytes())
 }
 

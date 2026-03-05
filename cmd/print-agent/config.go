@@ -12,6 +12,8 @@ type AgentConfig struct {
 	ServerURL   string `yaml:"server_url"`
 	PrinterName string `yaml:"printer_name"`
 	RetryDelay  int    `yaml:"retry_delay"`
+	PaperSize   string `yaml:"paper_size"`  // "80mm" (default) or "58mm"
+	FeedLines   int    `yaml:"feed_lines"`  // lines to feed before cut (default 1)
 }
 
 func DefaultAgentConfig() *AgentConfig {
@@ -20,6 +22,8 @@ func DefaultAgentConfig() *AgentConfig {
 		ServerURL:   "http://localhost:8080",
 		PrinterName: "ECO80",
 		RetryDelay:  5,
+		PaperSize:   "80mm",
+		FeedLines:   1,
 	}
 }
 

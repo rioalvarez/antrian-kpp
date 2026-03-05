@@ -152,17 +152,6 @@
     text-align: center;
 }
 
-.ticket-footer a {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--accent);
-    text-decoration: none;
-    transition: color 0.2s ease;
-}
-
-.ticket-footer a:hover {
-    color: var(--accent-hover);
-}
 
 /* Modal */
 .modal {

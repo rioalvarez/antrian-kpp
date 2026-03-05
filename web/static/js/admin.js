@@ -911,6 +911,15 @@ function setupTicketPreview() {
             checkbox.addEventListener('change', updateTicketPreview);
         }
     });
+
+    // Paper size radios
+    document.querySelectorAll('input[name="printer-paper-size"]').forEach(r => {
+        r.addEventListener('change', updateTicketPreview);
+    });
+}
+
+function onPaperSizeChange() {
+    updateTicketPreview();
 }
 
 // Update ticket preview
@@ -930,6 +939,17 @@ function updateTicketPreview() {
     document.getElementById('preview-footer2').textContent = footer2;
     document.getElementById('preview-thanks').textContent = thanks;
 
+    // Update paper size — separator length and preview note
+    const is58mm = document.getElementById('paper-58mm')?.checked;
+    const sep = is58mm ? '------------------------' : '--------------------------------';
+    document.querySelectorAll('.preview-separator').forEach(el => el.textContent = sep);
+    const noteEl = document.getElementById('preview-paper-note');
+    if (noteEl) {
+        noteEl.textContent = is58mm
+            ? 'Preview untuk printer thermal 58mm — nomor 4×'
+            : 'Preview untuk printer thermal 80mm — nomor 6×';
+    }
+
     // Update visibility
     const showSubheader = document.getElementById('ticket-show-subheader').checked;
     const showType = document.getElementById('ticket-show-type').checked;
@@ -947,7 +967,7 @@ function updateTicketPreview() {
 // Load ticket design settings
 async function loadTicketDesign() {
     try {
-        const response = await fetch('/api/settings?keys=ticket_header,ticket_subheader,ticket_title,ticket_footer1,ticket_footer2,ticket_thanks,ticket_show_subheader,ticket_show_type,ticket_show_datetime,ticket_show_footer,ticket_show_thanks');
+        const response = await fetch('/api/settings?keys=ticket_header,ticket_subheader,ticket_title,ticket_footer1,ticket_footer2,ticket_thanks,ticket_show_subheader,ticket_show_type,ticket_show_datetime,ticket_show_footer,ticket_show_thanks,printer_paper_size,printer_feed_lines');
         const settings = await response.json();
 
         // Set text values
@@ -964,6 +984,20 @@ async function loadTicketDesign() {
         document.getElementById('ticket-show-datetime').checked = settings.ticket_show_datetime !== 'false';
         document.getElementById('ticket-show-footer').checked = settings.ticket_show_footer !== 'false';
         document.getElementById('ticket-show-thanks').checked = settings.ticket_show_thanks !== 'false';
+
+        // Paper size
+        const paperSize = settings.printer_paper_size || '80mm';
+        const radioEl = document.getElementById(paperSize === '58mm' ? 'paper-58mm' : 'paper-80mm');
+        if (radioEl) radioEl.checked = true;
+
+        // Feed lines
+        const feedLines = parseInt(settings.printer_feed_lines) || 1;
+        const feedEl = document.getElementById('printer-feed-lines');
+        if (feedEl) {
+            feedEl.value = feedLines;
+            const valEl = document.getElementById('feed-lines-val');
+            if (valEl) valEl.textContent = feedLines;
+        }
 
         // Update preview
         updateTicketPreview();
@@ -987,7 +1021,9 @@ async function saveTicketDesign(event) {
         ticket_show_type: document.getElementById('ticket-show-type').checked.toString(),
         ticket_show_datetime: document.getElementById('ticket-show-datetime').checked.toString(),
         ticket_show_footer: document.getElementById('ticket-show-footer').checked.toString(),
-        ticket_show_thanks: document.getElementById('ticket-show-thanks').checked.toString()
+        ticket_show_thanks: document.getElementById('ticket-show-thanks').checked.toString(),
+        printer_paper_size: document.querySelector('input[name="printer-paper-size"]:checked')?.value || '80mm',
+        printer_feed_lines: document.getElementById('printer-feed-lines')?.value || '1'
     };
 
     try {

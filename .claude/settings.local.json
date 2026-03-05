@@ -37,7 +37,12 @@
       "Bash(git -C \"A:/proyek_magang/antrian-kpp\" status)",
       "Bash(git.exe -C \"A:/proyek_magang/antrian-kpp\" status)",
       "Bash(git.exe -C \"A:/proyek_magang/antrian-kpp\" ls-files:*)",
-      "Bash(git.exe:*)"
+      "Bash(git.exe:*)",
+      "Bash(ls:*)",
+      "Bash(go vet:*)",
+      "Bash(echo:*)",
+      "Bash(powershell -NoProfile -Command \"Get-Item ''A:\\\\proyek_magang\\\\antrian-kpp\\\\print-agent.exe'' 2>$null | Select-Object Name,Length,LastWriteTime\")",
+      "Bash(powershell -NoProfile -Command \"if \\(Test-Path ''A:\\\\proyek_magang\\\\antrian-kpp\\\\print-agent.exe''\\) { \\(Get-Item ''A:\\\\proyek_magang\\\\antrian-kpp\\\\print-agent.exe''\\) | Select-Object Name,Length,LastWriteTime } else { Write-Host ''NOT FOUND'' }\")"
     ]
   }
 }

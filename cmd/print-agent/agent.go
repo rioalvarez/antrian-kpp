@@ -50,6 +50,7 @@ func NewPrintAgent(cfg *AgentConfig) *PrintAgent {
 	}
 }
 
+
 // Run starts the agent loop: catch up pending jobs, then subscribe to SSE.
 // On disconnection, it waits and retries.
 func (a *PrintAgent) Run(stop <-chan struct{}) {
@@ -204,6 +205,16 @@ func (a *PrintAgent) processJob(jobID int64) {
 		log.Printf("Failed to parse template for job #%d: %v", jobID, err)
 		a.failJob(jobID, "failed to parse template: "+err.Error())
 		return
+	}
+
+	// Override paper settings with this agent's own local config so each
+	// physical machine can use the paper size it actually has installed,
+	// regardless of what the server-side default says.
+	if a.config.PaperSize == "80mm" || a.config.PaperSize == "58mm" {
+		tmpl.PaperSize = a.config.PaperSize
+	}
+	if a.config.FeedLines >= 1 {
+		tmpl.FeedLines = a.config.FeedLines
 	}
 
 	// 3. Print the ticket

@@ -23,6 +23,8 @@ type PrinterConfig struct {
 	Enabled       bool   `yaml:"enabled"`
 	PrinterName   string `yaml:"printer_name"`
 	RemoteEnabled bool   `yaml:"remote_enabled"`
+	PaperSize     string `yaml:"paper_size"`  // "80mm" (default) or "58mm"
+	FeedLines     int    `yaml:"feed_lines"`  // lines to feed before cut (default 1)
 }
 
 type ServerConfig struct {
@@ -96,6 +98,8 @@ func DefaultConfig() *Config {
 		Printer: PrinterConfig{
 			Enabled:     true,
 			PrinterName: "ECO80",
+			PaperSize:   "80mm",
+			FeedLines:   1,
 		},
 	}
 }

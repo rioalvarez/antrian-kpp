@@ -234,6 +234,57 @@
     color: #60a5fa;
 }
 
+/* Sidebar Server Info */
+.sidebar-server-info {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0.75rem 0.75rem 0;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    cursor: default;
+    transition: background 0.2s ease;
+    overflow: hidden;
+}
+.sidebar-server-info:hover { background: rgba(255, 255, 255, 0.08); }
+.ssi-icon {
+    flex-shrink: 0;
+    color: #475569;
+    display: flex;
+    align-items: center;
+}
+.ssi-text {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    overflow: hidden;
+}
+.ssi-label {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #475569;
+    font-weight: 600;
+}
+.ssi-url {
+    font-size: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    color: #94a3b8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.admin-sidebar.collapsed .sidebar-server-info {
+    margin: 0.75rem 0.5rem 0;
+    padding: 0.625rem;
+    justify-content: center;
+}
+.admin-sidebar.collapsed .ssi-text { display: none; }
+
 /* Main Content Area */
 .admin-main {
     flex: 1;

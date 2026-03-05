@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -232,12 +233,31 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/display", http.StatusFound)
 }
 
+// getServerAddr returns the first non-loopback IPv4 address of the machine
+// combined with the configured port (e.g. "10.9.1.203:8080").
+// Falls back to "localhost:<port>" if no suitable interface is found.
+func getServerAddr(port int) string {
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ip4 := ipnet.IP.To4(); ip4 != nil {
+					return fmt.Sprintf("%s:%d", ip4.String(), port)
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("localhost:%d", port)
+}
+
 func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	if !h.isAuthenticated(r) {
 		http.Redirect(w, r, "/admin/login", http.StatusFound)
 		return
 	}
-	h.tmpl.ExecuteTemplate(w, "admin.html", nil)
+	h.tmpl.ExecuteTemplate(w, "admin.html", map[string]interface{}{
+		"ServerAddr": getServerAddr(h.config.Server.Port),
+	})
 }
 
 func (h *Handler) handleSuperCounter(w http.ResponseWriter, r *http.Request) {
@@ -1100,6 +1120,16 @@ func (h *Handler) loadTicketTemplate() printer.TicketTemplate {
 	}
 	if val, _ := h.db.GetSetting("ticket_show_thanks"); val == "false" {
 		template.ShowThanks = false
+	}
+
+	// Paper / hardware settings
+	if val, _ := h.db.GetSetting("printer_paper_size"); val == "58mm" || val == "80mm" {
+		template.PaperSize = val
+	}
+	if val, _ := h.db.GetSetting("printer_feed_lines"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n >= 1 && n <= 5 {
+			template.FeedLines = n
+		}
 	}
 
 	return template
